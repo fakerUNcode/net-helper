@@ -15,6 +15,7 @@ class EmbeddingClient:
 
     def _get_local_model(self):
         if self._local_model is None:
+            import sys
             from sentence_transformers import SentenceTransformer
 
             from rag.config import resolve_project_path
@@ -22,7 +23,7 @@ class EmbeddingClient:
             model_name = str(self.cfg.get("local_model", "BAAI/bge-small-zh-v1.5"))
             device = self.cfg.get("local_device", "auto")
             if device == "auto":
-                device = None
+                device = "cpu" if sys.platform == "darwin" else None
 
             local_bundle = resolve_project_path("./models/bge-small-zh-v1.5")
             if local_bundle.exists() and any(local_bundle.iterdir()):
