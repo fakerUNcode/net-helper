@@ -49,6 +49,8 @@ jobs:
           path: |
             dist/*.zip
             dist/*.tar.gz
+            dist/*.dmg
+            dist/*-Setup.exe
 
   release:
     needs: build
@@ -69,3 +71,5 @@ jobs:
           files: |
             release-assets/*.zip
             release-assets/*.tar.gz
+            release-assets/*.dmg
+            release-assets/*-Setup.exe

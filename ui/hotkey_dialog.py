@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QObject, Qt, QThread, Signal
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -12,17 +11,49 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QKeySequenceEdit,
     QLabel,
+    QMessageBox,
+    QProgressBar,
     QPushButton,
     QRadioButton,
     QVBoxLayout,
 )
 
 from rag.config import resolve_project_path
+from rag.downloader import (
+    check_offline_readiness,
+    ensure_offline_embedding,
+    ensure_offline_gguf,
+    ensure_offline_mathjax,
+)
 from ui.hotkey_manager import pynput_to_qt_sequence, qt_sequence_to_pynput
 
 
+class _OfflineDownloadWorker(QObject):
+    progress = Signal(int, int, str)
+    finished = Signal()
+    failed = Signal(str)
+
+    def __init__(self, profile_key: str, gguf_raw_path: str) -> None:
+        super().__init__()
+        self._profile_key = profile_key
+        self._gguf_raw_path = gguf_raw_path
+
+    def run(self) -> None:
+        try:
+            def _cb(downloaded: int, total: int, label: str) -> None:
+                self.progress.emit(downloaded, total, label)
+
+            ensure_offline_mathjax(progress_cb=_cb)
+            ensure_offline_embedding(progress_cb=_cb)
+            gguf_dest = resolve_project_path(self._gguf_raw_path)
+            ensure_offline_gguf(self._profile_key, gguf_dest, progress_cb=_cb)
+            self.finished.emit()
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
 class HotkeySetupDialog(QDialog):
-    """每次启动前弹出：选择 Qwen2.5-3B / 7B GGUF 模型版本，并自定义全局一键隐藏/显示快捷键。"""
+    """每次启动前弹出：选择 Qwen2.5-3B / 7B GGUF 版本、一键补全离线组件并设置全局快捷键。"""
 
     def __init__(
         self,
@@ -32,8 +63,8 @@ class HotkeySetupDialog(QDialog):
         parent=None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("启动设置 - 模型版本与全局快捷键")
-        self.setFixedWidth(460)
+        self.setWindowTitle("启动设置 - 模型版本、离线组件与快捷键")
+        self.setFixedWidth(480)
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
 
         self._selected_pynput = initial_pynput_hotkey
@@ -43,13 +74,15 @@ class HotkeySetupDialog(QDialog):
         self._custom_model_paths: dict[str, str] = {}
         self._profile_radios: dict[str, QRadioButton] = {}
         self._profile_status_labels: dict[str, QLabel] = {}
+        self._dl_thread: QThread | None = None
+        self._dl_worker: _OfflineDownloadWorker | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 18)
-        layout.setSpacing(12)
+        layout.setSpacing(10)
 
         if show_model_selector and self._profiles:
-            model_title = QLabel("选择本地 GGUF 模型版本（llama.cpp）")
+            model_title = QLabel("1. 选择本地模型版本（下载后可永久断网运行）")
             model_title.setStyleSheet("font-size: 15px; font-weight: 600; color: #f9fafb;")
             layout.addWidget(model_title)
 
@@ -68,6 +101,7 @@ class HotkeySetupDialog(QDialog):
                 radio.setStyleSheet("font-size: 13px; color: #e5e7eb;")
                 if key == self._selected_profile:
                     radio.setChecked(True)
+                radio.toggled.connect(lambda _checked, k=key: self._on_profile_toggled())
                 self._btn_group.addButton(radio)
                 self._profile_radios[key] = radio
                 row.addWidget(radio, 1)
@@ -99,7 +133,67 @@ class HotkeySetupDialog(QDialog):
                 layout.addWidget(status_lbl)
                 self._refresh_model_status(key)
 
-        title = QLabel("设置「一键隐藏 / 显示」全局快捷键")
+            # 离线组件状态与一键下载区
+            offline_row = QHBoxLayout()
+            offline_row.setSpacing(8)
+            self.offline_status_label = QLabel()
+            self.offline_status_label.setWordWrap(True)
+            self.offline_status_label.setStyleSheet("font-size: 11px; color: #9ca3af;")
+            offline_row.addWidget(self.offline_status_label, 1)
+
+            self.download_btn = QPushButton("一键下载离线组件")
+            self.download_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.download_btn.setStyleSheet(
+                """
+                QPushButton {
+                    background: #059669;
+                    color: #ffffff;
+                    border: none;
+                    border-radius: 6px;
+                    padding: 5px 10px;
+                    font-size: 12px;
+                    font-weight: 600;
+                }
+                QPushButton:hover {
+                    background: #10b981;
+                }
+                QPushButton:disabled {
+                    background: rgba(75, 85, 99, 140);
+                    color: rgba(209, 213, 219, 140);
+                }
+                """
+            )
+            self.download_btn.clicked.connect(self._start_offline_download)
+            offline_row.addWidget(self.download_btn)
+            layout.addLayout(offline_row)
+
+            self.download_progress = QProgressBar()
+            self.download_progress.setFixedHeight(6)
+            self.download_progress.setTextVisible(False)
+            self.download_progress.setStyleSheet(
+                """
+                QProgressBar {
+                    background: rgba(255, 255, 255, 18);
+                    border: none;
+                    border-radius: 3px;
+                }
+                QProgressBar::chunk {
+                    background: #10b981;
+                    border-radius: 3px;
+                }
+                """
+            )
+            self.download_progress.hide()
+            layout.addWidget(self.download_progress)
+
+            self.download_detail_label = QLabel()
+            self.download_detail_label.setStyleSheet("font-size: 11px; color: #93c5fd;")
+            self.download_detail_label.hide()
+            layout.addWidget(self.download_detail_label)
+
+            self._refresh_offline_summary()
+
+        title = QLabel("2. 设置「一键隐藏 / 显示」全局快捷键")
         title.setStyleSheet("font-size: 15px; font-weight: 600; color: #f9fafb; margin-top: 4px;")
         layout.addWidget(title)
 
@@ -189,10 +283,10 @@ class HotkeySetupDialog(QDialog):
         )
         cancel_btn.clicked.connect(self.reject)
 
-        confirm_btn = QPushButton("确认并启动")
-        confirm_btn.setDefault(True)
-        confirm_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        confirm_btn.setStyleSheet(
+        self.confirm_btn = QPushButton("确认并启动")
+        self.confirm_btn.setDefault(True)
+        self.confirm_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.confirm_btn.setStyleSheet(
             """
             QPushButton {
                 background: #2563eb;
@@ -208,13 +302,23 @@ class HotkeySetupDialog(QDialog):
             }
             """
         )
-        confirm_btn.clicked.connect(self._on_confirm)
+        self.confirm_btn.clicked.connect(self._on_confirm)
 
         btn_row.addWidget(cancel_btn)
-        btn_row.addWidget(confirm_btn)
+        btn_row.addWidget(self.confirm_btn)
         layout.addLayout(btn_row)
 
         self.setStyleSheet("QDialog { background-color: #16181f; }")
+
+    def _active_profile_key(self) -> str:
+        for key, radio in self._profile_radios.items():
+            if radio.isChecked():
+                return key
+        return self._selected_profile
+
+    def _on_profile_toggled(self) -> None:
+        self._selected_profile = self._active_profile_key()
+        self._refresh_offline_summary()
 
     def _refresh_model_status(self, key: str) -> None:
         raw_path = self._custom_model_paths.get(key, "")
@@ -225,8 +329,80 @@ class HotkeySetupDialog(QDialog):
             lbl.setText(f"✓ 已就绪: {raw_path} ({size_gb:.2f} GB)")
             lbl.setStyleSheet("font-size: 11px; color: #34d399; padding-left: 20px;")
         else:
-            lbl.setText(f"○ 未检测到文件: {raw_path}（请放入 ./models/ 或点击右侧选择）")
+            lbl.setText(f"○ 未下载: {raw_path}（可点击下方「一键下载离线组件」）")
             lbl.setStyleSheet("font-size: 11px; color: #fbbf24; padding-left: 20px;")
+
+    def _refresh_offline_summary(self) -> None:
+        if not hasattr(self, "offline_status_label"):
+            return
+        key = self._active_profile_key()
+        raw_path = self._custom_model_paths.get(key, "")
+        status = check_offline_readiness(resolve_project_path(raw_path))
+        if status["all_ready"]:
+            self.offline_status_label.setText("✓ 全部离线组件已就绪（支持完全断网运行）")
+            self.offline_status_label.setStyleSheet("font-size: 11px; color: #34d399;")
+            self.download_btn.setText("离线已就绪")
+            self.download_btn.setEnabled(False)
+        else:
+            missing = []
+            if not status["gguf"]:
+                missing.append(f"{key.upper()} GGUF")
+            if not status["embedding"]:
+                missing.append("嵌入模型")
+            if not status["mathjax"]:
+                missing.append("MathJax")
+            self.offline_status_label.setText(f"待补全离线组件: {', '.join(missing)}")
+            self.offline_status_label.setStyleSheet("font-size: 11px; color: #fbbf24;")
+            self.download_btn.setText("一键下载离线组件")
+            self.download_btn.setEnabled(True)
+
+    def _start_offline_download(self) -> None:
+        key = self._active_profile_key()
+        raw_path = self._custom_model_paths.get(key, "")
+        self.download_btn.setEnabled(False)
+        self.confirm_btn.setEnabled(False)
+        self.download_progress.setRange(0, 0)
+        self.download_progress.show()
+        self.download_detail_label.setText("正在准备下载...")
+        self.download_detail_label.show()
+
+        self._dl_thread = QThread(self)
+        self._dl_worker = _OfflineDownloadWorker(key, raw_path)
+        self._dl_worker.moveToThread(self._dl_thread)
+        self._dl_thread.started.connect(self._dl_worker.run)
+        self._dl_worker.progress.connect(self._on_download_progress)
+        self._dl_worker.finished.connect(self._on_download_finished)
+        self._dl_worker.failed.connect(self._on_download_failed)
+        self._dl_worker.finished.connect(self._dl_thread.quit)
+        self._dl_worker.failed.connect(self._dl_thread.quit)
+        self._dl_thread.start()
+
+    def _on_download_progress(self, downloaded: int, total: int, label: str) -> None:
+        if total > 0:
+            self.download_progress.setRange(0, 100)
+            pct = min(100, int(downloaded * 100 / total))
+            self.download_progress.setValue(pct)
+            dl_mb = downloaded / (1024 * 1024)
+            tot_mb = total / (1024 * 1024)
+            self.download_detail_label.setText(f"{label}: {dl_mb:.1f} MB / {tot_mb:.1f} MB ({pct}%)")
+        else:
+            self.download_progress.setRange(0, 0)
+            self.download_detail_label.setText(label)
+
+    def _on_download_finished(self) -> None:
+        self.download_progress.hide()
+        self.download_detail_label.hide()
+        self.confirm_btn.setEnabled(True)
+        for key in self._profile_radios:
+            self._refresh_model_status(key)
+        self._refresh_offline_summary()
+
+    def _on_download_failed(self, err: str) -> None:
+        self.download_progress.hide()
+        self.download_detail_label.hide()
+        self.confirm_btn.setEnabled(True)
+        self.download_btn.setEnabled(True)
+        QMessageBox.warning(self, "离线组件下载失败", err)
 
     def _browse_gguf(self, key: str) -> None:
         models_dir = resolve_project_path("./models")
@@ -242,16 +418,14 @@ class HotkeySetupDialog(QDialog):
             if key in self._profile_radios:
                 self._profile_radios[key].setChecked(True)
             self._refresh_model_status(key)
+            self._refresh_offline_summary()
 
     def _on_confirm(self) -> None:
         seq_str = self.key_edit.keySequence().toString(QKeySequence.SequenceFormat.PortableText)
         if seq_str:
             first_seq = seq_str.split(",")[0].strip()
             self._selected_pynput = qt_sequence_to_pynput(first_seq)
-        for key, radio in self._profile_radios.items():
-            if radio.isChecked():
-                self._selected_profile = key
-                break
+        self._selected_profile = self._active_profile_key()
         self.accept()
 
     def selected_hotkey(self) -> str:

@@ -27,15 +27,12 @@ net-helper/
 ### 第一步：放入私有资料
 将你的 `.pdf`、`.md` 或 `.txt` 资料放入 `docs/` 目录。
 
-### 第二步：放入 GGUF 模型（二选一或全放）
-将官方或自训练微调导出的 `.gguf` 模型放入 `models/` 目录：
-
-| 版本 | 适用硬件 | 默认文件名 |
-|---|---|---|
-| **3B（默认）** | 8GB 内存 / 纯 CPU 推荐 | `models/qwen2.5-3b-instruct-q4_k_m.gguf` |
-| **7B** | 16GB 内存 / ≥8GB 显存推荐 | `models/qwen2.5-7b-instruct-q4_k_m.gguf` |
-
-> 若模型文件名不同，可在启动弹窗中点击「选择 GGUF」直接指定，或修改 `config.yaml` 中的 `llm.profiles.*.model_path`。
+### 第二步：准备模型与离线组件（首次联网一键补全，后续永久断网运行）
+- **推荐方式（开箱即用）**：直接启动程序，在启动设置弹窗中选择 `3B` 或 `7B` 版本，点击 **「一键下载离线组件」**，程序会自动将以下组件断点续传至本地目录，之后即可**永久断网运行**：
+  - 本地大模型：`models/qwen2.5-3b-instruct-q4_k_m.gguf`（~2.0 GB）或 `models/qwen2.5-7b-instruct-q4_k_m.gguf`（~4.7 GB）
+  - 本地嵌入模型：`models/bge-small-zh-v1.5/`（~95 MB）
+  - 本地公式渲染：`assets/mathjax/es5/tex-mml-chtml.js`
+- **手动迁移方式**：也可直接将自训练或已下载的 `.gguf` 模型放入 `models/` 目录（若文件名不同，点击弹窗「选择 GGUF」指定即可）。
 
 ---
 

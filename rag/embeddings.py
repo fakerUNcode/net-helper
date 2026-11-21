@@ -17,11 +17,24 @@ class EmbeddingClient:
         if self._local_model is None:
             from sentence_transformers import SentenceTransformer
 
-            model_name = self.cfg.get("local_model", "BAAI/bge-small-zh-v1.5")
+            from rag.config import resolve_project_path
+
+            model_name = str(self.cfg.get("local_model", "BAAI/bge-small-zh-v1.5"))
             device = self.cfg.get("local_device", "auto")
             if device == "auto":
                 device = None
-            self._local_model = SentenceTransformer(model_name, device=device)
+
+            local_bundle = resolve_project_path("./models/bge-small-zh-v1.5")
+            if local_bundle.exists() and any(local_bundle.iterdir()):
+                os.environ.setdefault("HF_HUB_OFFLINE", "1")
+                os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+                self._local_model = SentenceTransformer(
+                    str(local_bundle),
+                    device=device,
+                    local_files_only=True,
+                )
+            else:
+                self._local_model = SentenceTransformer(model_name, device=device)
         return self._local_model
 
     def _get_openai_client(self):
