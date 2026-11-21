@@ -1,0 +1,33 @@
+# Python & 虚拟环境
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+
+# 打包产物
+build/
+dist/
+*.spec
+
+# 系统与编辑器缓存
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log
+.env
+
+# 运行时数据、模型权重与私有知识库文档（仅保留说明文件）
+vector_store/
+chroma_db/
+models/*.gguf
+models/*.bin
+docs/*.pdf
+docs/*.md
+docs/*.txt
+docs/*.markdown
+!docs/README.md
+!models/README.md

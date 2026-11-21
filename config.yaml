@@ -1,0 +1,54 @@
+# 最小完整答案弹窗助手配置文件
+
+app:
+  name: "最小完整答案助手"
+  hotkey: "<ctrl>+<shift>+h"   # 默认全局隐藏/显示快捷键，每次启动前可自定义修改
+  window_opacity: 0.90         # 窗口整体透明度 (0.1 - 1.0)
+  input_width: 420             # 提问输入框宽度 (px)
+  answer_width: 560            # 答案弹窗宽度 (px)
+  answer_max_height: 520       # 答案弹窗最大高度 (px)
+  margin_x: 24                 # 距离屏幕左边缘距离 (px)
+  margin_y: 24                 # 距离屏幕下边缘距离 (px)
+
+docs:
+  source_dir: "./docs"         # 私有资料库目录 (支持 PDF / Markdown / TXT)
+
+vector_store:
+  persist_directory: "./vector_store"  # ChromaDB 持久化路径
+  collection_name: "private_kb"
+  top_k: 3                     # 余弦相似度检索 Top-3
+
+chunking:
+  chunk_size: 512              # 每块最大 token 数
+  chunk_overlap: 50            # 相邻块重叠 token 数
+
+embedding:
+  provider: "local"            # 可选: "local" (bge-small-zh-v1.5) 或 "openai" (text-embedding-3-small)
+  local_model: "BAAI/bge-small-zh-v1.5"
+  local_device: "auto"         # "auto" / "cpu" / "mps" / "cuda"
+  openai_model: "text-embedding-3-small"
+  openai_api_key_env: "OPENAI_API_KEY"
+  openai_base_url: "https://api.openai.com/v1"
+
+llm:
+  provider: "llama_cpp"        # 默认使用跨平台直连本地 GGUF: "llama_cpp"（也可选 "ollama"）
+  model_profile: "3b"          # 可选版本: "3b" (Qwen2.5-3B-Instruct) 或 "7b" (Qwen2.5-7B-Instruct)
+  profiles:
+    "3b":
+      label: "Qwen2.5-3B-Instruct（轻量高速版 · Q4_K_M）"
+      model_path: "./models/qwen2.5-3b-instruct-q4_k_m.gguf"
+      n_ctx: 4096
+      n_gpu_layers: -1
+    "7b":
+      label: "Qwen2.5-7B-Instruct（高精度答题版 · Q4_K_M）"
+      model_path: "./models/qwen2.5-7b-instruct-q4_k_m.gguf"
+      n_ctx: 4096
+      n_gpu_layers: -1
+  llama_cpp_model_path: "./models/qwen2.5-3b-instruct-q4_k_m.gguf"
+  llama_cpp_n_ctx: 4096
+  llama_cpp_n_gpu_layers: -1
+  ollama_base_url: "http://127.0.0.1:11434"
+  ollama_model: "qwen2.5:3b"
+  temperature: 0.1
+  max_tokens: 1024
+  timeout_seconds: 120
