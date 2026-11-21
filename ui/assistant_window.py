@@ -92,6 +92,7 @@ class FloatingAssistantWindow(QWidget):
         self._build_ui()
         self._setup_tray()
         self._enter_input_mode()
+        self._anchor_bottom_left()
 
     def _setup_window_flags(self) -> None:
         self.setWindowTitle(self._app_name)
@@ -361,7 +362,6 @@ class FloatingAssistantWindow(QWidget):
         self.send_btn.setEnabled(True)
         self.web_view.setHtml("")
         self.setFixedSize(self._window_width, self._window_height)
-        self._anchor_bottom_left()
         self.input_edit.setFocus()
 
     def _enter_answer_mode(self, html_content: str) -> None:
@@ -370,7 +370,6 @@ class FloatingAssistantWindow(QWidget):
         self.answer_container.show()
         self.web_view.setHtml(html_content)
         self.setFixedSize(self._window_width, self._window_height)
-        self._anchor_bottom_left()
         if not self.isVisible():
             self.show()
         self.raise_()
@@ -387,8 +386,6 @@ class FloatingAssistantWindow(QWidget):
         self.input_edit.setEnabled(False)
         self.send_btn.setEnabled(False)
         self.loading_bar.show()
-        self.adjustSize()
-        self._anchor_bottom_left()
 
         self._worker_thread = QThread(self)
         self._worker = _QueryWorker(
