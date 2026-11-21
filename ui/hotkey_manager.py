@@ -104,19 +104,58 @@ def format_hotkey_label(pynput_str: str) -> str:
     return "+".join(tokens)
 
 
+def _parse_cocoa_hotkey(pynput_str: str) -> tuple[int, str]:
+    """解析 '<ctrl>+<shift>+h' 为 macOS NSEvent modifier mask 与目标字符。"""
+    from AppKit import (
+        NSAlternateKeyMask,
+        NSCommandKeyMask,
+        NSControlKeyMask,
+        NSShiftKeyMask,
+    )
+
+    mask = 0
+    key_char = ""
+    special_chars = {
+        "<space>": " ",
+        "<tab>": "\t",
+        "<enter>": "\r",
+        "<esc>": "\x1b",
+    }
+    for part in [p.strip().lower() for p in pynput_str.split("+") if p.strip()]:
+        if part == "<ctrl>":
+            mask |= NSControlKeyMask
+        elif part == "<cmd>":
+            mask |= NSCommandKeyMask
+        elif part == "<alt>":
+            mask |= NSAlternateKeyMask
+        elif part == "<shift>":
+            mask |= NSShiftKeyMask
+        elif part in special_chars:
+            key_char = special_chars[part]
+        else:
+            key_char = part.strip("<>")
+    return mask, key_char
+
+
 class GlobalHotkeyManager(QObject):
-    """跨平台全局快捷键管理器，通过 Qt Signal 线程安全地切换窗口显隐。"""
+    """跨平台全局快捷键管理器：macOS 使用主线程 NSEvent 监听（避免后台线程 SIGTRAP），Win/Linux 使用 pynput。"""
 
     triggered = Signal()
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._listener = None
+        self._mac_global_monitor = None
+        self._mac_local_monitor = None
         self._current_hotkey = ""
 
     def start(self, pynput_hotkey: str) -> tuple[bool, str]:
         self.stop()
         self._current_hotkey = pynput_hotkey
+
+        if sys.platform == "darwin":
+            return self._start_macos(pynput_hotkey)
+
         try:
             from pynput import keyboard
 
@@ -130,6 +169,48 @@ class GlobalHotkeyManager(QObject):
             self._listener = None
             return False, f"全局快捷键注册失败 ({pynput_hotkey}): {exc}"
 
+    def _start_macos(self, pynput_hotkey: str) -> tuple[bool, str]:
+        try:
+            from AppKit import (
+                NSAlternateKeyMask,
+                NSCommandKeyMask,
+                NSControlKeyMask,
+                NSEvent,
+                NSKeyDownMask,
+                NSShiftKeyMask,
+            )
+
+            target_mask, target_key = _parse_cocoa_hotkey(pynput_hotkey)
+            relevant_mask = NSControlKeyMask | NSCommandKeyMask | NSAlternateKeyMask | NSShiftKeyMask
+
+            def _matches(event) -> bool:
+                mods = int(event.modifierFlags()) & relevant_mask
+                if mods != target_mask:
+                    return False
+                chars = (event.charactersIgnoringModifiers() or "").lower()
+                return bool(target_key) and chars == target_key
+
+            def _global_handler(event) -> None:
+                if _matches(event):
+                    self.triggered.emit()
+
+            def _local_handler(event):
+                if _matches(event):
+                    self.triggered.emit()
+                    return None
+                return event
+
+            self._mac_global_monitor = NSEvent.addGlobalMonitorForEventsMatchingMask_handler_(
+                NSKeyDownMask, _global_handler
+            )
+            self._mac_local_monitor = NSEvent.addLocalMonitorForEventsMatchingMask_handler_(
+                NSKeyDownMask, _local_handler
+            )
+            return True, ""
+        except Exception as exc:
+            self.stop()
+            return False, f"macOS 快捷键注册失败 ({pynput_hotkey}): {exc}"
+
     def stop(self) -> None:
         if self._listener is not None:
             try:
@@ -137,3 +218,16 @@ class GlobalHotkeyManager(QObject):
             except Exception:
                 pass
             self._listener = None
+
+        if sys.platform == "darwin":
+            try:
+                from AppKit import NSEvent
+
+                if self._mac_global_monitor is not None:
+                    NSEvent.removeMonitor_(self._mac_global_monitor)
+                if self._mac_local_monitor is not None:
+                    NSEvent.removeMonitor_(self._mac_local_monitor)
+            except Exception:
+                pass
+            self._mac_global_monitor = None
+            self._mac_local_monitor = None
