@@ -75,9 +75,9 @@ class FloatingAssistantWindow(QWidget):
         self._hotkey_label = format_hotkey_label(str(app_cfg.get("hotkey", "<ctrl>+<shift>+h")))
         self._opacity = max(0.2, min(1.0, float(app_cfg.get("window_opacity", 0.85))))
         self._input_width = int(app_cfg.get("input_width", 360))
-        self._input_height = int(app_cfg.get("input_height", 54))
-        self._answer_width = int(app_cfg.get("answer_width", 420))
-        self._answer_max_height = int(app_cfg.get("answer_max_height", 320))
+        self._input_height = int(app_cfg.get("input_height", 60))
+        self._window_width = self._input_width
+        self._window_height = int(app_cfg.get("answer_max_height", round(self._input_height * 1.5)))
         self._margin_x = int(app_cfg.get("margin_x", 24))
         self._margin_y = int(app_cfg.get("margin_y", 24))
         self._top_k = int(config.get("vector_store", {}).get("top_k", 3))
@@ -135,7 +135,7 @@ class FloatingAssistantWindow(QWidget):
         header_row.setContentsMargins(2, 0, 2, 0)
         header_row.setSpacing(8)
 
-        self.title_label = QLabel(f"{self._app_name} · {self._hotkey_label}")
+        self.title_label = QLabel(self._hotkey_label)
         self.title_label.setStyleSheet("font-size: 11px; color: rgba(209, 213, 219, 190);")
         header_row.addWidget(self.title_label)
         header_row.addStretch(1)
@@ -204,7 +204,7 @@ class FloatingAssistantWindow(QWidget):
         input_row.setSpacing(8)
 
         self.input_edit = QLineEdit(self.input_container)
-        self.input_edit.setPlaceholderText(f"输入问题并按 Enter 提问 ({self._hotkey_label} 显隐)")
+        self.input_edit.setPlaceholderText("")
         self.input_edit.setStyleSheet(
             """
             QLineEdit {
@@ -337,12 +337,11 @@ class FloatingAssistantWindow(QWidget):
 
     def update_hotkey_label(self, pynput_hotkey: str) -> None:
         self._hotkey_label = format_hotkey_label(pynput_hotkey)
-        self.title_label.setText(f"{self._app_name} · {self._hotkey_label}")
-        self.input_edit.setPlaceholderText(f"输入问题并按 Enter 提问 ({self._hotkey_label} 显隐)")
+        self.title_label.setText(self._hotkey_label)
         self.hide_btn_answer.setToolTip(f"隐藏窗口 ({self._hotkey_label} 恢复)")
         self.hide_btn_input.setToolTip(f"隐藏窗口 ({self._hotkey_label} 恢复)")
         if getattr(self, "tray_icon", None) is not None:
-            self.tray_icon.setToolTip(f"{self._app_name} ({self._hotkey_label})")
+            self.tray_icon.setToolTip(self._hotkey_label)
 
     def _anchor_bottom_left(self) -> None:
         screen = QGuiApplication.primaryScreen()
@@ -361,7 +360,7 @@ class FloatingAssistantWindow(QWidget):
         self.input_edit.setEnabled(True)
         self.send_btn.setEnabled(True)
         self.web_view.setHtml("")
-        self.setFixedSize(self._input_width, self._input_height)
+        self.setFixedSize(self._window_width, self._window_height)
         self._anchor_bottom_left()
         self.input_edit.setFocus()
 
@@ -370,7 +369,7 @@ class FloatingAssistantWindow(QWidget):
         self.input_container.hide()
         self.answer_container.show()
         self.web_view.setHtml(html_content)
-        self.setFixedSize(self._answer_width, self._answer_max_height)
+        self.setFixedSize(self._window_width, self._window_height)
         self._anchor_bottom_left()
         if not self.isVisible():
             self.show()

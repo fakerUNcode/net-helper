@@ -3,9 +3,9 @@ app:
   hotkey: <ctrl>+<shift>+h
   window_opacity: 0.85
   input_width: 360
-  input_height: 58
-  answer_width: 420
-  answer_max_height: 320
+  input_height: 60
+  answer_width: 360
+  answer_max_height: 90
   margin_x: 24
   margin_y: 24
 docs:
