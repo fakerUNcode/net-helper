@@ -73,10 +73,11 @@ class FloatingAssistantWindow(QWidget):
         app_cfg = config.get("app", {})
         self._app_name = str(app_cfg.get("name", "最小完整答案助手"))
         self._hotkey_label = format_hotkey_label(str(app_cfg.get("hotkey", "<ctrl>+<shift>+h")))
-        self._opacity = max(0.2, min(1.0, float(app_cfg.get("window_opacity", 0.90))))
-        self._input_width = int(app_cfg.get("input_width", 420))
-        self._answer_width = int(app_cfg.get("answer_width", 560))
-        self._answer_max_height = int(app_cfg.get("answer_max_height", 520))
+        self._opacity = max(0.2, min(1.0, float(app_cfg.get("window_opacity", 0.85))))
+        self._input_width = int(app_cfg.get("input_width", 360))
+        self._input_height = int(app_cfg.get("input_height", 54))
+        self._answer_width = int(app_cfg.get("answer_width", 420))
+        self._answer_max_height = int(app_cfg.get("answer_max_height", 320))
         self._margin_x = int(app_cfg.get("margin_x", 24))
         self._margin_y = int(app_cfg.get("margin_y", 24))
         self._top_k = int(config.get("vector_store", {}).get("top_k", 3))
@@ -112,17 +113,17 @@ class FloatingAssistantWindow(QWidget):
         self.card.setStyleSheet(
             """
             #FloatingCard {
-                background-color: rgba(18, 20, 28, 232);
-                border: 1px solid rgba(255, 255, 255, 42);
-                border-radius: 14px;
+                background-color: rgba(18, 20, 28, 178);
+                border: 1px solid rgba(255, 255, 255, 38);
+                border-radius: 12px;
             }
             """
         )
         root_layout.addWidget(self.card)
 
         card_layout = QVBoxLayout(self.card)
-        card_layout.setContentsMargins(12, 10, 12, 10)
-        card_layout.setSpacing(8)
+        card_layout.setContentsMargins(10, 8, 10, 8)
+        card_layout.setSpacing(6)
 
         # --- 1. 答案弹窗区域（默认隐藏，仅在生成结束后展示） ---
         self.answer_container = QWidget(self.card)
@@ -139,18 +140,18 @@ class FloatingAssistantWindow(QWidget):
         header_row.addWidget(self.title_label)
         header_row.addStretch(1)
 
-        self.restart_btn = QPushButton("Restart")
+        self.restart_btn = QPushButton("↻")
         self.restart_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.restart_btn.setToolTip("清空当前答案并重新提问")
+        self.restart_btn.setToolTip("重新提问")
+        self.restart_btn.setFixedSize(26, 26)
         self.restart_btn.setStyleSheet(
             """
             QPushButton {
-                background: rgba(37, 99, 235, 210);
+                background: rgba(37, 99, 235, 195);
                 color: #ffffff;
                 border: none;
                 border-radius: 6px;
-                padding: 4px 10px;
-                font-size: 12px;
+                font-size: 14px;
                 font-weight: 600;
             }
             QPushButton:hover {
@@ -226,21 +227,22 @@ class FloatingAssistantWindow(QWidget):
         self.input_edit.returnPressed.connect(self._on_submit)
         input_row.addWidget(self.input_edit, 1)
 
-        self.send_btn = QPushButton("提问")
+        self.send_btn = QPushButton("➤")
         self.send_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.send_btn.setToolTip("发送提问 (Enter)")
+        self.send_btn.setFixedSize(32, 32)
         self.send_btn.setStyleSheet(
             """
             QPushButton {
-                background: rgba(37, 99, 235, 220);
+                background: rgba(37, 99, 235, 200);
                 color: #ffffff;
                 border: none;
                 border-radius: 8px;
-                padding: 8px 14px;
                 font-size: 13px;
                 font-weight: 600;
             }
             QPushButton:hover {
-                background: rgba(59, 130, 246, 240);
+                background: rgba(59, 130, 246, 235);
             }
             QPushButton:disabled {
                 background: rgba(75, 85, 99, 140);
@@ -359,10 +361,7 @@ class FloatingAssistantWindow(QWidget):
         self.input_edit.setEnabled(True)
         self.send_btn.setEnabled(True)
         self.web_view.setHtml("")
-        self.setFixedWidth(self._input_width)
-        self.setMinimumHeight(0)
-        self.setMaximumHeight(220)
-        self.adjustSize()
+        self.setFixedSize(self._input_width, self._input_height)
         self._anchor_bottom_left()
         self.input_edit.setFocus()
 
@@ -371,8 +370,7 @@ class FloatingAssistantWindow(QWidget):
         self.input_container.hide()
         self.answer_container.show()
         self.web_view.setHtml(html_content)
-        self.setFixedWidth(self._answer_width)
-        self.setFixedHeight(self._answer_max_height)
+        self.setFixedSize(self._answer_width, self._answer_max_height)
         self._anchor_bottom_left()
         if not self.isVisible():
             self.show()

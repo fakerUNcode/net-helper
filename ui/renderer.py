@@ -97,11 +97,14 @@ window.MathJax = {{
   html, body {{
     margin: 0;
     padding: 0;
+    height: 100%;
     background: transparent;
     color: #f3f4f6;
     font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", Roboto, sans-serif;
-    font-size: 14px;
-    line-height: 1.6;
+    font-size: 13.5px;
+    line-height: 1.55;
+    overflow-x: hidden;
+    overflow-y: auto;
     overflow-wrap: break-word;
   }}
   #content {{
