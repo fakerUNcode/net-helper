@@ -29,7 +29,7 @@ from ui.hotkey_manager import pynput_to_qt_sequence, qt_sequence_to_pynput
 
 
 class _OfflineDownloadWorker(QObject):
-    progress = Signal(int, int, str)
+    progress = Signal(object, object, str)
     finished = Signal()
     failed = Signal(str)
 
