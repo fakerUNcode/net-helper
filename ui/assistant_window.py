@@ -12,7 +12,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMenu,
-    QProgressBar,
     QPushButton,
     QSystemTrayIcon,
     QVBoxLayout,
@@ -73,7 +72,7 @@ class FloatingAssistantWindow(QWidget):
         app_cfg = config.get("app", {})
         self._app_name = str(app_cfg.get("name", "最小完整答案助手"))
         self._hotkey_label = format_hotkey_label(str(app_cfg.get("hotkey", "<ctrl>+<shift>+h")))
-        self._opacity = max(0.2, min(1.0, float(app_cfg.get("window_opacity", 0.85))))
+        self._opacity = max(0.2, min(1.0, float(app_cfg.get("window_opacity", 0.70))))
         self._input_width = int(app_cfg.get("input_width", 360))
         self._input_height = int(app_cfg.get("input_height", 60))
         self._window_width = self._input_width
@@ -277,27 +276,6 @@ class FloatingAssistantWindow(QWidget):
 
         input_vlayout.addLayout(input_row)
 
-        # 流式隐藏期间仅展示无文字的极简进度条，绝不显示任何生成 token
-        self.loading_bar = QProgressBar(self.input_container)
-        self.loading_bar.setRange(0, 0)
-        self.loading_bar.setFixedHeight(3)
-        self.loading_bar.setTextVisible(False)
-        self.loading_bar.setStyleSheet(
-            """
-            QProgressBar {
-                background: rgba(255, 255, 255, 16);
-                border: none;
-                border-radius: 1px;
-            }
-            QProgressBar::chunk {
-                background: #60a5fa;
-                border-radius: 1px;
-            }
-            """
-        )
-        self.loading_bar.hide()
-        input_vlayout.addWidget(self.loading_bar)
-
         if self._hotkey_warning:
             warn_label = QLabel(self._hotkey_warning)
             warn_label.setWordWrap(True)
@@ -357,7 +335,6 @@ class FloatingAssistantWindow(QWidget):
         self._in_answer_mode = False
         self.answer_container.hide()
         self.input_container.show()
-        self.loading_bar.hide()
         self.input_edit.setEnabled(True)
         self.send_btn.setEnabled(True)
         self.web_view.setHtml("")
@@ -385,7 +362,6 @@ class FloatingAssistantWindow(QWidget):
         self._is_generating = True
         self.input_edit.setEnabled(False)
         self.send_btn.setEnabled(False)
-        self.loading_bar.show()
 
         self._worker_thread = QThread(self)
         self._worker = _QueryWorker(
@@ -413,13 +389,11 @@ class FloatingAssistantWindow(QWidget):
 
     def _on_generation_finished(self, final_answer: str) -> None:
         self._is_generating = False
-        self.loading_bar.hide()
         rendered_html = render_answer_html(final_answer)
         self._enter_answer_mode(rendered_html)
 
     def _on_generation_failed(self, error_msg: str) -> None:
         self._is_generating = False
-        self.loading_bar.hide()
         safe_err = html.escape(error_msg)
         err_md = f"**执行失败**\n\n```\n{safe_err}\n```"
         rendered_html = render_answer_html(err_md)

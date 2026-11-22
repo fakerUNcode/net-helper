@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+from pathlib import Path
+import sys
 from typing import Any
 
 import requests
@@ -89,8 +92,40 @@ class LocalLLMClient:
         n_gpu_layers = int(profile.get("n_gpu_layers", self.cfg.get("llama_cpp_n_gpu_layers", -1)))
         return str(raw_path), n_ctx, n_gpu_layers
 
+    def _prepare_windows_cuda_dlls(self) -> None:
+        if sys.platform != "win32":
+            return
+        candidate_dirs: list[Path] = []
+        for entry in sys.path:
+            if not entry:
+                continue
+            sp = Path(entry)
+            nvidia_dir = sp / "nvidia"
+            if nvidia_dir.is_dir():
+                for bin_dir in nvidia_dir.glob("*/bin"):
+                    if bin_dir.is_dir():
+                        candidate_dirs.append(bin_dir)
+            torch_lib = sp / "torch" / "lib"
+            if torch_lib.is_dir():
+                candidate_dirs.append(torch_lib)
+
+        seen: set[Path] = set()
+        for dll_dir in candidate_dirs:
+            resolved = dll_dir.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            try:
+                os.add_dll_directory(str(resolved))
+            except OSError:
+                pass
+            path_env = os.environ.get("PATH", "")
+            if str(resolved) not in path_env:
+                os.environ["PATH"] = f"{resolved}{os.pathsep}{path_env}"
+
     def _get_llama_cpp(self):
         if self._llama_instance is None:
+            self._prepare_windows_cuda_dlls()
             try:
                 from llama_cpp import Llama
             except ImportError as exc:

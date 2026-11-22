@@ -26,7 +26,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "app": {
         "name": "最小完整答案助手",
         "hotkey": "<ctrl>+<shift>+h",
-        "window_opacity": 0.85,
+        "window_opacity": 0.70,
         "input_width": 360,
         "input_height": 60,
         "answer_width": 360,
