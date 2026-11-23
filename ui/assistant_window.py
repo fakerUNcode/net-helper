@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMenu,
     QPushButton,
+    QSizePolicy,
     QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
@@ -124,6 +125,7 @@ class FloatingAssistantWindow(QWidget):
         self.card = QFrame(self)
         self.card.setObjectName("FloatingCard")
         self.card.setMouseTracking(True)
+        self.card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.card.setStyleSheet(
             """
             #FloatingCard {
@@ -133,15 +135,16 @@ class FloatingAssistantWindow(QWidget):
             }
             """
         )
-        root_layout.addWidget(self.card)
+        root_layout.addWidget(self.card, 1)
 
         card_layout = QVBoxLayout(self.card)
-        card_layout.setContentsMargins(10, 8, 10, 8)
+        card_layout.setContentsMargins(8, 8, 8, 6)
         card_layout.setSpacing(6)
 
         # --- 1. 答案弹窗区域（默认隐藏，仅在生成结束后展示） ---
         self.answer_container = QWidget(self.card)
         self.answer_container.setMouseTracking(True)
+        self.answer_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         answer_layout = QVBoxLayout(self.answer_container)
         answer_layout.setContentsMargins(0, 0, 0, 0)
         answer_layout.setSpacing(6)
@@ -201,6 +204,7 @@ class FloatingAssistantWindow(QWidget):
         answer_layout.addLayout(header_row)
 
         self.web_view = QWebEngineView(self.answer_container)
+        self.web_view.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.web_view.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.web_view.setStyleSheet("background: transparent;")
         self.web_view.page().setBackgroundColor(QColor(0, 0, 0, 0))
@@ -209,7 +213,7 @@ class FloatingAssistantWindow(QWidget):
         web_settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
         answer_layout.addWidget(self.web_view, 1)
 
-        card_layout.addWidget(self.answer_container)
+        card_layout.addWidget(self.answer_container, 1)
 
         # --- 2. 提问输入条（提问态仅显示此部分） ---
         self.input_container = QWidget(self.card)
