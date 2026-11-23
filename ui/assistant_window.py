@@ -3,10 +3,12 @@ from __future__ import annotations
 import html
 from typing import Any
 
-from PySide6.QtCore import QObject, QPoint, Qt, QThread, Signal
+from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt, QThread, QUrl, Signal
 from PySide6.QtGui import QAction, QColor, QGuiApplication
+from PySide6.QtWebEngineCore import QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
+    QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -18,6 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from rag.config import PROJECT_ROOT
 from rag.postprocess import postprocess_answer
 from rag.prompt import build_messages
 from ui.hotkey_manager import format_hotkey_label
@@ -76,12 +79,16 @@ class FloatingAssistantWindow(QWidget):
         self._input_width = int(app_cfg.get("input_width", 360))
         self._input_height = int(app_cfg.get("input_height", 60))
         self._window_width = self._input_width
-        self._window_height = int(app_cfg.get("answer_max_height", round(self._input_height * 1.5)))
+        self._window_height = int(app_cfg.get("answer_max_height", 117))
         self._margin_x = int(app_cfg.get("margin_x", 24))
         self._margin_y = int(app_cfg.get("margin_y", 24))
         self._top_k = int(config.get("vector_store", {}).get("top_k", 3))
 
+        self._resize_margin = 8
         self._drag_offset: QPoint | None = None
+        self._resize_edges: tuple[bool, bool, bool, bool] | None = None
+        self._resize_start_pos: QPoint | None = None
+        self._resize_start_geo: QRect | None = None
         self._worker_thread: QThread | None = None
         self._worker: _QueryWorker | None = None
         self._is_generating = False
@@ -89,7 +96,12 @@ class FloatingAssistantWindow(QWidget):
 
         self._setup_window_flags()
         self._build_ui()
+        self.setMinimumSize(260, 80)
+        self.resize(self._window_width, self._window_height)
         self._setup_tray()
+        app_inst = QGuiApplication.instance()
+        if app_inst is not None:
+            app_inst.applicationStateChanged.connect(self._on_app_state_changed)
         self._enter_input_mode()
         self._anchor_bottom_left()
 
@@ -102,6 +114,7 @@ class FloatingAssistantWindow(QWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setWindowOpacity(self._opacity)
+        self.setMouseTracking(True)
 
     def _build_ui(self) -> None:
         root_layout = QVBoxLayout(self)
@@ -110,6 +123,7 @@ class FloatingAssistantWindow(QWidget):
 
         self.card = QFrame(self)
         self.card.setObjectName("FloatingCard")
+        self.card.setMouseTracking(True)
         self.card.setStyleSheet(
             """
             #FloatingCard {
@@ -127,6 +141,7 @@ class FloatingAssistantWindow(QWidget):
 
         # --- 1. 答案弹窗区域（默认隐藏，仅在生成结束后展示） ---
         self.answer_container = QWidget(self.card)
+        self.answer_container.setMouseTracking(True)
         answer_layout = QVBoxLayout(self.answer_container)
         answer_layout.setContentsMargins(0, 0, 0, 0)
         answer_layout.setSpacing(6)
@@ -189,12 +204,16 @@ class FloatingAssistantWindow(QWidget):
         self.web_view.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.web_view.setStyleSheet("background: transparent;")
         self.web_view.page().setBackgroundColor(QColor(0, 0, 0, 0))
+        web_settings = self.web_view.settings()
+        web_settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
+        web_settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
         answer_layout.addWidget(self.web_view, 1)
 
         card_layout.addWidget(self.answer_container)
 
         # --- 2. 提问输入条（提问态仅显示此部分） ---
         self.input_container = QWidget(self.card)
+        self.input_container.setMouseTracking(True)
         input_vlayout = QVBoxLayout(self.input_container)
         input_vlayout.setContentsMargins(0, 0, 0, 0)
         input_vlayout.setSpacing(6)
@@ -312,6 +331,7 @@ class FloatingAssistantWindow(QWidget):
         menu.addAction(quit_action)
 
         self.tray_icon.setContextMenu(menu)
+        self.tray_icon.activated.connect(self._on_tray_activated)
         self.tray_icon.show()
 
     def update_hotkey_label(self, pynput_hotkey: str) -> None:
@@ -338,15 +358,14 @@ class FloatingAssistantWindow(QWidget):
         self.input_edit.setEnabled(True)
         self.send_btn.setEnabled(True)
         self.web_view.setHtml("")
-        self.setFixedSize(self._window_width, self._window_height)
         self.input_edit.setFocus()
 
     def _enter_answer_mode(self, html_content: str) -> None:
         self._in_answer_mode = True
         self.input_container.hide()
         self.answer_container.show()
-        self.web_view.setHtml(html_content)
-        self.setFixedSize(self._window_width, self._window_height)
+        base_url = QUrl.fromLocalFile(str(PROJECT_ROOT) + "/")
+        self.web_view.setHtml(html_content, base_url)
         if not self.isVisible():
             self.show()
         self.raise_()
@@ -410,15 +429,41 @@ class FloatingAssistantWindow(QWidget):
         self.activateWindow()
         self.input_edit.setFocus()
 
+    def restore_window(self) -> None:
+        if not self.isVisible():
+            self.show()
+        self.raise_()
+        self.activateWindow()
+        if not self._in_answer_mode and self.input_edit.isEnabled():
+            self.input_edit.setFocus()
+
+    def _on_tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
+        if reason in (
+            QSystemTrayIcon.ActivationReason.Trigger,
+            QSystemTrayIcon.ActivationReason.DoubleClick,
+        ):
+            self.restore_window()
+
+    def _on_app_state_changed(self, state: Qt.ApplicationState) -> None:
+        if state == Qt.ApplicationState.ApplicationActive and not self.isVisible():
+            self.restore_window()
+
     def toggle_visibility(self) -> None:
         if self.isVisible():
             self.hide()
         else:
-            self.show()
-            self.raise_()
-            self.activateWindow()
-            if not self._in_answer_mode and self.input_edit.isEnabled():
-                self.input_edit.setFocus()
+            self.restore_window()
+
+    def changeEvent(self, event) -> None:
+        if (
+            event.type() == QEvent.Type.ActivationChange
+            and not self.isActiveWindow()
+            and self.isVisible()
+            and QApplication.activePopupWidget() is None
+            and QApplication.activeModalWidget() is None
+        ):
+            self.hide()
+        super().changeEvent(event)
 
     def keyPressEvent(self, event) -> None:
         if event.key() == Qt.Key.Key_Escape:
@@ -426,20 +471,90 @@ class FloatingAssistantWindow(QWidget):
             return
         super().keyPressEvent(event)
 
+    def _hit_test_edges(self, pos: QPoint) -> tuple[bool, bool, bool, bool]:
+        m = self._resize_margin
+        w = self.width()
+        h = self.height()
+        left = pos.x() <= m
+        right = pos.x() >= w - m
+        top = pos.y() <= m
+        bottom = pos.y() >= h - m
+        return (left, right, top, bottom)
+
+    @staticmethod
+    def _cursor_for_edges(edges: tuple[bool, bool, bool, bool]) -> Qt.CursorShape:
+        left, right, top, bottom = edges
+        if (left and top) or (right and bottom):
+            return Qt.CursorShape.SizeFDiagCursor
+        if (right and top) or (left and bottom):
+            return Qt.CursorShape.SizeBDiagCursor
+        if left or right:
+            return Qt.CursorShape.SizeHorCursor
+        if top or bottom:
+            return Qt.CursorShape.SizeVerCursor
+        return Qt.CursorShape.ArrowCursor
+
+    def resizeEvent(self, event) -> None:
+        self._window_width = self.width()
+        self._window_height = self.height()
+        super().resizeEvent(event)
+
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            local_pos = event.position().toPoint()
+            edges = self._hit_test_edges(local_pos)
+            if any(edges):
+                self._resize_edges = edges
+                self._resize_start_pos = event.globalPosition().toPoint()
+                self._resize_start_geo = self.geometry()
+            else:
+                self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             event.accept()
             return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:
+        if (
+            self._resize_edges is not None
+            and self._resize_start_pos is not None
+            and self._resize_start_geo is not None
+            and event.buttons() & Qt.MouseButton.LeftButton
+        ):
+            delta = event.globalPosition().toPoint() - self._resize_start_pos
+            geo = QRect(self._resize_start_geo)
+            left, right, top, bottom = self._resize_edges
+            min_w = self.minimumWidth()
+            min_h = self.minimumHeight()
+
+            if left:
+                new_left = min(geo.right() - min_w + 1, geo.left() + delta.x())
+                geo.setLeft(new_left)
+            if right:
+                new_right = max(geo.left() + min_w - 1, geo.right() + delta.x())
+                geo.setRight(new_right)
+            if top:
+                new_top = min(geo.bottom() - min_h + 1, geo.top() + delta.y())
+                geo.setTop(new_top)
+            if bottom:
+                new_bottom = max(geo.top() + min_h - 1, geo.bottom() + delta.y())
+                geo.setBottom(new_bottom)
+
+            self.setGeometry(geo)
+            event.accept()
+            return
+
         if self._drag_offset is not None and event.buttons() & Qt.MouseButton.LeftButton:
             self.move(event.globalPosition().toPoint() - self._drag_offset)
             event.accept()
             return
+
+        edges = self._hit_test_edges(event.position().toPoint())
+        self.setCursor(self._cursor_for_edges(edges))
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:
         self._drag_offset = None
+        self._resize_edges = None
+        self._resize_start_pos = None
+        self._resize_start_geo = None
         super().mouseReleaseEvent(event)

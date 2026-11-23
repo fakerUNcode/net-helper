@@ -30,7 +30,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "input_width": 360,
         "input_height": 60,
         "answer_width": 360,
-        "answer_max_height": 90,
+        "answer_max_height": 117,
         "margin_x": 24,
         "margin_y": 24,
     },
@@ -40,7 +40,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "vector_store": {
         "persist_directory": "./vector_store",
         "collection_name": "private_kb",
-        "top_k": 3,
+        "top_k": 5,
     },
     "chunking": {
         "chunk_size": 512,

@@ -1,11 +1,11 @@
 app:
   name: 最小完整答案助手
   hotkey: <ctrl>+<shift>+h
-  window_opacity: 0.70
+  window_opacity: 0.7
   input_width: 360
   input_height: 60
   answer_width: 360
-  answer_max_height: 90
+  answer_max_height: 117
   margin_x: 24
   margin_y: 24
 docs:
@@ -13,7 +13,7 @@ docs:
 vector_store:
   persist_directory: ./vector_store
   collection_name: private_kb
-  top_k: 3
+  top_k: 5
 chunking:
   chunk_size: 512
   chunk_overlap: 50
@@ -26,7 +26,7 @@ embedding:
   openai_base_url: https://api.openai.com/v1
 llm:
   provider: llama_cpp
-  model_profile: 3b
+  model_profile: 7b
   profiles:
     3b:
       label: Qwen2.5-3B-Instruct（轻量高速版 · Q4_K_M）
@@ -38,7 +38,7 @@ llm:
       model_path: ./models/qwen2.5-7b-instruct-q4_k_m.gguf
       n_ctx: 4096
       n_gpu_layers: -1
-  llama_cpp_model_path: ./models/qwen2.5-3b-instruct-q4_k_m.gguf
+  llama_cpp_model_path: ./models/qwen2.5-7b-instruct-q4_k_m.gguf
   llama_cpp_n_ctx: 4096
   llama_cpp_n_gpu_layers: -1
   ollama_base_url: http://127.0.0.1:11434
