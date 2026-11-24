@@ -167,7 +167,7 @@ class GlobalHotkeyManager(QObject):
             return True, ""
         except Exception as exc:
             self._listener = None
-            return False, f"全局快捷键注册失败 ({pynput_hotkey}): {exc}"
+            return False, f"Hotkey failed ({pynput_hotkey}): {exc}"
 
     def _start_macos(self, pynput_hotkey: str) -> tuple[bool, str]:
         try:
@@ -209,7 +209,7 @@ class GlobalHotkeyManager(QObject):
             return True, ""
         except Exception as exc:
             self.stop()
-            return False, f"macOS 快捷键注册失败 ({pynput_hotkey}): {exc}"
+            return False, f"Hotkey failed ({pynput_hotkey}): {exc}"
 
     def stop(self) -> None:
         if self._listener is not None:

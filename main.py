@@ -12,26 +12,27 @@ from rag.retriever import VectorRetriever
 from ui.assistant_window import FloatingAssistantWindow
 from ui.hotkey_dialog import HotkeySetupDialog
 from ui.hotkey_manager import GlobalHotkeyManager
+from ui.theme import message_box_qss
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="最小完整答案弹窗助手")
-    parser.add_argument("--config", type=Path, default=None, help="配置文件路径 (默认 ./config.yaml)")
+    parser = argparse.ArgumentParser(description="NetHelper")
+    parser.add_argument("--config", type=Path, default=None, help="Config path")
     parser.add_argument(
         "--model",
         choices=["3b", "7b"],
         default=None,
-        help="指定启动的本地 GGUF 模型版本 (3b: Qwen2.5-3B-Instruct, 7b: Qwen2.5-7B-Instruct)",
+        help="Model (3b or 7b)",
     )
     parser.add_argument(
         "--ingest-only",
         action="store_true",
-        help="仅执行私有资料库入库，不启动桌面窗口",
+        help="Ingest only",
     )
     parser.add_argument(
         "--skip-hotkey-setup",
         action="store_true",
-        help="跳过启动前的快捷键与模型设置弹窗，直接使用 config.yaml 中的配置",
+        help="Skip setup dialog",
     )
     args = parser.parse_args()
 
@@ -43,6 +44,7 @@ def main() -> int:
 
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
+    app.setStyleSheet(message_box_qss())
 
     config = load_config(args.config)
     if args.model:
@@ -71,8 +73,8 @@ def main() -> int:
     if retriever.count() == 0:
         reply = QMessageBox.question(
             None,
-            "知识库尚未入库",
-            "当前向量库为空。\n是否立即扫描 ./docs 目录并构建向量索引？\n（首次运行将加载本地嵌入模型，可能需要数秒至数十秒）",
+            "Index Empty",
+            "Build index from ./docs?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
         )
@@ -109,7 +111,7 @@ def main() -> int:
                 save_config(config, args.config)
                 window.update_hotkey_label(current_hotkey)
             else:
-                QMessageBox.warning(window, "快捷键注册失败", err_rebind)
+                QMessageBox.warning(window, "Hotkey Error", err_rebind)
 
     window.rebind_hotkey_requested.connect(_rebind_hotkey)
     app.aboutToQuit.connect(hotkey_manager.stop)

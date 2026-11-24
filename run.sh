@@ -18,7 +18,7 @@ pick_python() {
 
 PYTHON_BIN="$(pick_python || true)"
 if [ -z "$PYTHON_BIN" ]; then
-  echo "[错误] 未找到 Python 3.10+，请先安装 Python 3.10 或更高版本。" >&2
+  echo "[Error] Python 3.10+ required." >&2
   exit 1
 fi
 

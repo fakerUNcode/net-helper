@@ -26,6 +26,24 @@ from rag.postprocess import postprocess_answer
 from rag.prompt import build_messages
 from ui.hotkey_manager import format_hotkey_label
 from ui.renderer import render_answer_html
+from ui.theme import (
+    BG_CARD_RGBA,
+    BG_INPUT,
+    BG_INPUT_FOCUS,
+    BG_MUTED,
+    BORDER_CARD,
+    BORDER_COLOR,
+    LINK_COLOR,
+    QT_SERIF_FONT_FAMILY,
+    SELECTION_QT_BG,
+    TEXT_COLOR,
+    TEXT_MUTED,
+    TEXT_SECONDARY,
+    WARNING_TEXT,
+    accent_button_qss,
+    ghost_icon_button_qss,
+    tray_menu_qss,
+)
 
 
 class _QueryWorker(QObject):
@@ -48,7 +66,7 @@ class _QueryWorker(QObject):
             raw_answer = self._llm_client.generate_complete(messages)
             final_answer = postprocess_answer(raw_answer)
             if not final_answer:
-                final_answer = "资料库中未包含该问题的相关信息。"
+                final_answer = "No relevant information."
             self.finished.emit(final_answer)
         except Exception as exc:
             self.failed.emit(str(exc))
@@ -74,7 +92,7 @@ class FloatingAssistantWindow(QWidget):
         self._hotkey_warning = hotkey_warning
 
         app_cfg = config.get("app", {})
-        self._app_name = str(app_cfg.get("name", "最小完整答案助手"))
+        self._app_name = str(app_cfg.get("name", "NetHelper"))
         self._hotkey_label = format_hotkey_label(str(app_cfg.get("hotkey", "<ctrl>+<shift>+h")))
         self._opacity = max(0.2, min(1.0, float(app_cfg.get("window_opacity", 0.70))))
         self._input_width = int(app_cfg.get("input_width", 360))
@@ -127,12 +145,12 @@ class FloatingAssistantWindow(QWidget):
         self.card.setMouseTracking(True)
         self.card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.card.setStyleSheet(
-            """
-            #FloatingCard {
-                background-color: rgba(18, 20, 28, 178);
-                border: 1px solid rgba(255, 255, 255, 38);
+            f"""
+            #FloatingCard {{
+                background-color: {BG_CARD_RGBA};
+                border: 1px solid {BORDER_CARD};
                 border-radius: 12px;
-            }
+            }}
             """
         )
         root_layout.addWidget(self.card, 1)
@@ -154,50 +172,23 @@ class FloatingAssistantWindow(QWidget):
         header_row.setSpacing(8)
 
         self.title_label = QLabel(self._hotkey_label)
-        self.title_label.setStyleSheet("font-size: 11px; color: rgba(209, 213, 219, 190);")
+        self.title_label.setStyleSheet(f"font-size: 11px; color: {TEXT_SECONDARY};")
         header_row.addWidget(self.title_label)
         header_row.addStretch(1)
 
         self.restart_btn = QPushButton("↻")
         self.restart_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.restart_btn.setToolTip("重新提问")
+        self.restart_btn.setToolTip("Restart")
         self.restart_btn.setFixedSize(26, 26)
-        self.restart_btn.setStyleSheet(
-            """
-            QPushButton {
-                background: rgba(37, 99, 235, 195);
-                color: #ffffff;
-                border: none;
-                border-radius: 6px;
-                font-size: 14px;
-                font-weight: 600;
-            }
-            QPushButton:hover {
-                background: rgba(59, 130, 246, 235);
-            }
-            """
-        )
+        self.restart_btn.setStyleSheet(accent_button_qss(border_radius=6, font_size=14))
         self.restart_btn.clicked.connect(self._on_restart_clicked)
         header_row.addWidget(self.restart_btn)
 
         self.hide_btn_answer = QPushButton("—")
         self.hide_btn_answer.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.hide_btn_answer.setToolTip(f"隐藏窗口 ({self._hotkey_label} 恢复)")
+        self.hide_btn_answer.setToolTip("Hide")
         self.hide_btn_answer.setFixedSize(24, 24)
-        self.hide_btn_answer.setStyleSheet(
-            """
-            QPushButton {
-                background: rgba(255, 255, 255, 22);
-                color: #d1d5db;
-                border: none;
-                border-radius: 6px;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background: rgba(255, 255, 255, 45);
-            }
-            """
-        )
+        self.hide_btn_answer.setStyleSheet(ghost_icon_button_qss(border_radius=6, font_size=12))
         self.hide_btn_answer.clicked.connect(self.hide)
         header_row.addWidget(self.hide_btn_answer)
 
@@ -229,22 +220,26 @@ class FloatingAssistantWindow(QWidget):
         self.input_edit = QLineEdit(self.input_container)
         self.input_edit.setPlaceholderText("")
         self.input_edit.setStyleSheet(
-            """
-            QLineEdit {
-                background: rgba(255, 255, 255, 16);
-                border: 1px solid rgba(255, 255, 255, 34);
+            f"""
+            QLineEdit {{
+                background: {BG_INPUT};
+                border: 1px solid {BORDER_COLOR};
                 border-radius: 8px;
                 padding: 8px 12px;
-                color: #f9fafb;
+                color: {TEXT_COLOR};
+                selection-background-color: {SELECTION_QT_BG};
+                selection-color: {TEXT_COLOR};
+                font-family: {QT_SERIF_FONT_FAMILY};
                 font-size: 13px;
-            }
-            QLineEdit:focus {
-                border: 1px solid rgba(96, 165, 250, 220);
-                background: rgba(255, 255, 255, 22);
-            }
-            QLineEdit:disabled {
-                color: rgba(156, 163, 175, 180);
-            }
+            }}
+            QLineEdit:focus {{
+                border: 1px solid {LINK_COLOR};
+                background: {BG_INPUT_FOCUS};
+            }}
+            QLineEdit:disabled {{
+                background: {BG_MUTED};
+                color: {TEXT_MUTED};
+            }}
             """
         )
         self.input_edit.returnPressed.connect(self._on_submit)
@@ -252,48 +247,17 @@ class FloatingAssistantWindow(QWidget):
 
         self.send_btn = QPushButton("➤")
         self.send_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.send_btn.setToolTip("发送提问 (Enter)")
+        self.send_btn.setToolTip("Send")
         self.send_btn.setFixedSize(32, 32)
-        self.send_btn.setStyleSheet(
-            """
-            QPushButton {
-                background: rgba(37, 99, 235, 200);
-                color: #ffffff;
-                border: none;
-                border-radius: 8px;
-                font-size: 13px;
-                font-weight: 600;
-            }
-            QPushButton:hover {
-                background: rgba(59, 130, 246, 235);
-            }
-            QPushButton:disabled {
-                background: rgba(75, 85, 99, 140);
-                color: rgba(209, 213, 219, 140);
-            }
-            """
-        )
+        self.send_btn.setStyleSheet(accent_button_qss(border_radius=8, font_size=13))
         self.send_btn.clicked.connect(self._on_submit)
         input_row.addWidget(self.send_btn)
 
         self.hide_btn_input = QPushButton("—")
         self.hide_btn_input.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.hide_btn_input.setToolTip(f"隐藏窗口 ({self._hotkey_label} 恢复)")
+        self.hide_btn_input.setToolTip("Hide")
         self.hide_btn_input.setFixedSize(28, 32)
-        self.hide_btn_input.setStyleSheet(
-            """
-            QPushButton {
-                background: rgba(255, 255, 255, 18);
-                color: #d1d5db;
-                border: none;
-                border-radius: 8px;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background: rgba(255, 255, 255, 38);
-            }
-            """
-        )
+        self.hide_btn_input.setStyleSheet(ghost_icon_button_qss(border_radius=8, font_size=12))
         self.hide_btn_input.clicked.connect(self.hide)
         input_row.addWidget(self.hide_btn_input)
 
@@ -302,7 +266,7 @@ class FloatingAssistantWindow(QWidget):
         if self._hotkey_warning:
             warn_label = QLabel(self._hotkey_warning)
             warn_label.setWordWrap(True)
-            warn_label.setStyleSheet("font-size: 11px; color: #fbbf24;")
+            warn_label.setStyleSheet(f"font-size: 11px; color: {WARNING_TEXT};")
             input_vlayout.addWidget(warn_label)
 
         card_layout.addWidget(self.input_container)
@@ -314,23 +278,24 @@ class FloatingAssistantWindow(QWidget):
 
         icon = self.style().standardIcon(self.style().StandardPixmap.SP_MessageBoxInformation)
         self.tray_icon = QSystemTrayIcon(icon, self)
-        self.tray_icon.setToolTip(f"{self._app_name} ({self._hotkey_label})")
+        self.tray_icon.setToolTip(self._hotkey_label)
 
         menu = QMenu()
-        toggle_action = QAction("显示 / 隐藏", self)
+        menu.setStyleSheet(tray_menu_qss())
+        toggle_action = QAction("Show / Hide", self)
         toggle_action.triggered.connect(self.toggle_visibility)
         menu.addAction(toggle_action)
 
-        restart_action = QAction("重新提问 (Restart)", self)
+        restart_action = QAction("Restart", self)
         restart_action.triggered.connect(self._on_restart_clicked)
         menu.addAction(restart_action)
 
-        hotkey_action = QAction("修改全局快捷键...", self)
+        hotkey_action = QAction("Hotkey...", self)
         hotkey_action.triggered.connect(self.rebind_hotkey_requested.emit)
         menu.addAction(hotkey_action)
 
         menu.addSeparator()
-        quit_action = QAction("退出", self)
+        quit_action = QAction("Quit", self)
         quit_action.triggered.connect(QGuiApplication.quit)
         menu.addAction(quit_action)
 
@@ -341,8 +306,8 @@ class FloatingAssistantWindow(QWidget):
     def update_hotkey_label(self, pynput_hotkey: str) -> None:
         self._hotkey_label = format_hotkey_label(pynput_hotkey)
         self.title_label.setText(self._hotkey_label)
-        self.hide_btn_answer.setToolTip(f"隐藏窗口 ({self._hotkey_label} 恢复)")
-        self.hide_btn_input.setToolTip(f"隐藏窗口 ({self._hotkey_label} 恢复)")
+        self.hide_btn_answer.setToolTip("Hide")
+        self.hide_btn_input.setToolTip("Hide")
         if getattr(self, "tray_icon", None) is not None:
             self.tray_icon.setToolTip(self._hotkey_label)
 
@@ -418,7 +383,7 @@ class FloatingAssistantWindow(QWidget):
     def _on_generation_failed(self, error_msg: str) -> None:
         self._is_generating = False
         safe_err = html.escape(error_msg)
-        err_md = f"**执行失败**\n\n```\n{safe_err}\n```"
+        err_md = f"**Error**\n\n```\n{safe_err}\n```"
         rendered_html = render_answer_html(err_md)
         self._enter_answer_mode(rendered_html)
 

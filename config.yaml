@@ -1,6 +1,6 @@
 app:
-  name: 最小完整答案助手
-  hotkey: <ctrl>+<shift>+h
+  name: NetHelper
+  hotkey: <alt>+h
   window_opacity: 0.7
   input_width: 360
   input_height: 60
@@ -29,12 +29,12 @@ llm:
   model_profile: 7b
   profiles:
     3b:
-      label: Qwen2.5-3B-Instruct（轻量高速版 · Q4_K_M）
+      label: 3b
       model_path: ./models/qwen2.5-3b-instruct-q4_k_m.gguf
       n_ctx: 4096
       n_gpu_layers: -1
     7b:
-      label: Qwen2.5-7B-Instruct（高精度答题版 · Q4_K_M）
+      label: 7b
       model_path: ./models/qwen2.5-7b-instruct-q4_k_m.gguf
       n_ctx: 4096
       n_gpu_layers: -1

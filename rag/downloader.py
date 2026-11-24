@@ -72,7 +72,7 @@ def download_file_with_resume(
             last_err = exc
             continue
 
-    raise RuntimeError(f"下载失败 ({dest_path.name}): {last_err}")
+    raise RuntimeError(f"Download failed ({dest_path.name}): {last_err}")
 
 
 def ensure_offline_mathjax(progress_cb: ProgressCallback | None = None) -> Path:
@@ -81,12 +81,12 @@ def ensure_offline_mathjax(progress_cb: ProgressCallback | None = None) -> Path:
     if target.exists():
         return target
     if progress_cb:
-        progress_cb(0, 0, "正在下载离线 MathJax 3...")
+        progress_cb(0, 0, "MathJax")
     return download_file_with_resume(
         [MATHJAX_FILES["es5/tex-mml-chtml.js"]],
         target,
         progress_cb=progress_cb,
-        label="MathJax 3 离线渲染库",
+        label="MathJax",
     )
 
 
@@ -96,7 +96,7 @@ def ensure_offline_embedding(progress_cb: ProgressCallback | None = None) -> Pat
         return target_dir
 
     if progress_cb:
-        progress_cb(0, 0, "正在下载离线嵌入模型 bge-small-zh-v1.5...")
+        progress_cb(0, 0, "Embedding")
 
     from huggingface_hub import snapshot_download
 
@@ -112,7 +112,7 @@ def ensure_offline_embedding(progress_cb: ProgressCallback | None = None) -> Pat
         except Exception:
             continue
 
-    raise RuntimeError("下载离线嵌入模型 BAAI/bge-small-zh-v1.5 失败，请检查网络连接。")
+    raise RuntimeError("Embedding download failed.")
 
 
 def ensure_offline_gguf(profile_key: str, dest_path: Path, progress_cb: ProgressCallback | None = None) -> Path:
@@ -120,12 +120,12 @@ def ensure_offline_gguf(profile_key: str, dest_path: Path, progress_cb: Progress
         return dest_path
     urls = GGUF_URLS.get(profile_key)
     if not urls:
-        raise ValueError(f"未定义内置下载链接的模型版本: {profile_key}")
+        raise ValueError(f"Unknown model profile: {profile_key}")
     return download_file_with_resume(
         urls,
         dest_path,
         progress_cb=progress_cb,
-        label=f"Qwen2.5-{profile_key.upper()}-Instruct GGUF",
+        label=profile_key,
     )
 
 

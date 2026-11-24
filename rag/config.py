@@ -24,7 +24,7 @@ DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "app": {
-        "name": "最小完整答案助手",
+        "name": "NetHelper",
         "hotkey": "<ctrl>+<shift>+h",
         "window_opacity": 0.70,
         "input_width": 360,
@@ -59,13 +59,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "model_profile": "3b",
         "profiles": {
             "3b": {
-                "label": "Qwen2.5-3B-Instruct（轻量高速版 · Q4_K_M）",
+                "label": "3b",
                 "model_path": "./models/qwen2.5-3b-instruct-q4_k_m.gguf",
                 "n_ctx": 4096,
                 "n_gpu_layers": -1,
             },
             "7b": {
-                "label": "Qwen2.5-7B-Instruct（高精度答题版 · Q4_K_M）",
+                "label": "7b",
                 "model_path": "./models/qwen2.5-7b-instruct-q4_k_m.gguf",
                 "n_ctx": 4096,
                 "n_gpu_layers": -1,

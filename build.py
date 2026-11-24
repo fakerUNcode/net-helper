@@ -46,7 +46,7 @@ def _collect_pyinstaller_args(console: bool = False) -> list[str]:
         "tiktoken_ext.openai_public",
         "pynput.keyboard._darwin" if sys.platform == "darwin" else "pynput.keyboard._win32" if os.name == "nt" else "pynput.keyboard._xorg",
         "pynput.mouse._darwin" if sys.platform == "darwin" else "pynput.mouse._win32" if os.name == "nt" else "pynput.mouse._xorg",
-        "pygments.styles.monokai",
+        "pygments.styles.gruvbox",
         "markdown.extensions.fenced_code",
         "markdown.extensions.codehilite",
         "markdown.extensions.tables",

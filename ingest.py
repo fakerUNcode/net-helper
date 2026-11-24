@@ -21,25 +21,22 @@ def ingest(config_path: Path | None = None, rebuild: bool = True) -> None:
     chunk_overlap = int(config["chunking"].get("chunk_overlap", 50))
 
     if not source_dir.exists():
-        print(f"[错误] 资料库目录不存在: {source_dir}", file=sys.stderr)
+        print(f"[Error] Missing directory: {source_dir}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"[1/4] 正在扫描并切分资料库: {source_dir} (chunk_size={chunk_size}, overlap={chunk_overlap})")
     chunks = load_and_chunk_directory(
         source_dir=source_dir,
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
     )
     if not chunks:
-        print("[警告] 未在资料库目录中找到有效的 PDF / Markdown / TXT 文本内容。")
+        print("[Error] No PDF / Markdown / TXT files found.", file=sys.stderr)
         sys.exit(1)
 
-    print(f"[2/4] 共生成 {len(chunks)} 个文本块，正在初始化嵌入模型 ({config['embedding']['provider']})...")
     embedder = EmbeddingClient(config["embedding"])
     texts = [c.text for c in chunks]
     embeddings = embedder.embed_documents(texts, batch_size=32)
 
-    print(f"[3/4] 正在写入 ChromaDB 向量库: {persist_dir} (collection={collection_name}, space=cosine)")
     persist_dir.mkdir(parents=True, exist_ok=True)
     client = chromadb.PersistentClient(path=str(persist_dir))
 
@@ -67,16 +64,14 @@ def ingest(config_path: Path | None = None, rebuild: bool = True) -> None:
             metadatas=metadatas[start:end],
         )
 
-    print(f"[4/4] 入库完成！当前向量库总片段数: {collection.count()}")
-
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="将私有资料库 (PDF/MD/TXT) 切片并入库到 ChromaDB。")
-    parser.add_argument("--config", type=Path, default=None, help="配置文件路径 (默认 ./config.yaml)")
+    parser = argparse.ArgumentParser(description="Ingest documents into ChromaDB")
+    parser.add_argument("--config", type=Path, default=None, help="Config path")
     parser.add_argument(
         "--append",
         action="store_true",
-        help="增量更新模式（默认会先清空旧集合再重建索引）",
+        help="Append instead of rebuilding",
     )
     args = parser.parse_args()
     ingest(config_path=args.config, rebuild=not args.append)
