@@ -20,14 +20,9 @@ Thumbs.db
 *.log
 .env
 
-# 运行时数据、模型权重与私有知识库文档（仅保留说明文件）
+# 运行时数据与模型权重（仅保留说明文件）
 vector_store/
 chroma_db/
 models/*.gguf
 models/*.bin
-docs/*.pdf
-docs/*.md
-docs/*.txt
-docs/*.markdown
-!docs/README.md
 !models/README.md
