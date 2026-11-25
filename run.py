@@ -43,16 +43,18 @@ def main() -> int:
     parser.add_argument("--reinstall", action="store_true", help="Reinstall dependencies")
     parser.add_argument("--ingest", action="store_true", help="Rebuild index before launch")
     parser.add_argument("--ingest-only", action="store_true", help="Ingest only")
-    parser.add_argument("--model", choices=["3b", "7b"], default=None, help="Model (3b or 7b)")
+    parser.add_argument("--model", choices=["3b", "7b", "8b", "14b"], default=None, help="Model (3b, 7b, 8b, or 14b)")
     parser.add_argument("--skip-hotkey-setup", action="store_true", help="Skip setup dialog")
     args = parser.parse_args()
 
     py_bin = _ensure_venv(reinstall=args.reinstall)
 
     vector_dir = PROJECT_ROOT / "vector_store"
-    need_ingest = args.ingest or args.ingest_only or not vector_dir.exists() or not any(vector_dir.iterdir())
-    if need_ingest:
-        subprocess.run([str(py_bin), str(PROJECT_ROOT / "ingest.py")], cwd=str(PROJECT_ROOT), check=True)
+    force_ingest = args.ingest or args.ingest_only or not vector_dir.exists() or not any(vector_dir.iterdir())
+    ingest_cmd = [str(py_bin), str(PROJECT_ROOT / "ingest.py")]
+    if not force_ingest:
+        ingest_cmd.append("--if-stale")
+    subprocess.run(ingest_cmd, cwd=str(PROJECT_ROOT), check=True)
 
     if args.ingest_only:
         return 0

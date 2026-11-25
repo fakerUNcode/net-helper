@@ -1,6 +1,7 @@
 app:
   name: NetHelper
-  hotkey: <alt>+h
+  hotkey: <cmd>+<shift>+h
+  theme: dark
   window_opacity: 0.7
   input_width: 360
   input_height: 60
@@ -38,6 +39,24 @@ llm:
       model_path: ./models/qwen2.5-7b-instruct-q4_k_m.gguf
       n_ctx: 4096
       n_gpu_layers: -1
+    8b:
+      label: 8b (Qwen3-8B)
+      model_path: ./models/qwen3-8b-q4_k_m.gguf
+      n_ctx: 6144
+      n_gpu_layers: -1
+      temperature: 0.6
+      top_p: 0.95
+      top_k: 20
+      max_tokens: 3072
+    14b:
+      label: 14b (Qwen3-14B)
+      model_path: ./models/qwen3-14b-q4_k_m.gguf
+      n_ctx: 6144
+      n_gpu_layers: -1
+      temperature: 0.6
+      top_p: 0.95
+      top_k: 20
+      max_tokens: 3072
   llama_cpp_model_path: ./models/qwen2.5-7b-instruct-q4_k_m.gguf
   llama_cpp_n_ctx: 4096
   llama_cpp_n_gpu_layers: -1

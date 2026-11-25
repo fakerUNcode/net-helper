@@ -1,6 +1,6 @@
 # NetHelper 部署与运行教程
 
-基于本地 RAG（ChromaDB + `bge-small-zh-v1.5`）与本地 GGUF 模型（`llama.cpp` / `Qwen2.5-3B` 或 `7B`）的左下角悬浮问答助手，支持 macOS / Windows / Linux。
+基于本地 RAG（ChromaDB + `bge-small-zh-v1.5`）与本地 GGUF 模型（`llama.cpp` / `Qwen2.5-3B`、`Qwen2.5-7B`、`Qwen3-8B` 或 `Qwen3-14B`）的左下角悬浮问答助手，支持 macOS / Windows / Linux。
 
 ---
 
@@ -28,8 +28,8 @@ net-helper/
 将你的 `.pdf`、`.md` 或 `.txt` 资料放入 `docs/` 目录。
 
 ### 第二步：准备模型与离线组件（首次联网一键补全，后续永久断网运行）
-- **推荐方式（开箱即用）**：直接启动程序，在启动设置弹窗中选择 `3B` 或 `7B` 版本，点击 **「一键下载离线组件」**，程序会自动将以下组件断点续传至本地目录，之后即可**永久断网运行**：
-  - 本地大模型：`models/qwen2.5-3b-instruct-q4_k_m.gguf`（~2.0 GB）或 `models/qwen2.5-7b-instruct-q4_k_m.gguf`（~4.7 GB）
+- **推荐方式（开箱即用）**：直接启动程序，在启动设置弹窗中选择 `3b`、`7b`、`8b (Qwen3-8B)` 或 `14b (Qwen3-14B)` 版本，点击 **「Download」**，程序会自动将以下组件断点续传至本地目录，之后即可**永久断网运行**：
+  - 本地大模型：`models/qwen2.5-3b-instruct-q4_k_m.gguf`（~2.0 GB）、`models/qwen2.5-7b-instruct-q4_k_m.gguf`（~4.4 GB）、`models/qwen3-8b-q4_k_m.gguf`（~5.0 GB，16GB 内存多任务推荐）或 `models/qwen3-14b-q4_k_m.gguf`（~9.0 GB，最高答题精度）
   - 本地嵌入模型：`models/bge-small-zh-v1.5/`（~95 MB）
   - 本地公式渲染：`assets/mathjax/es5/tex-mml-chtml.js`
 - **手动迁移方式**：也可直接将自训练或已下载的 `.gguf` 模型放入 `models/` 目录（若文件名不同，点击弹窗「选择 GGUF」指定即可）。
@@ -54,7 +54,9 @@ run.bat
 
 ### 常用启动参数
 ```bash
-# 指定使用 7B 或 3B 模型启动
+# 指定使用 14B、8B、7B 或 3B 模型启动
+python run.py --model 14b
+python run.py --model 8b
 python run.py --model 7b
 python run.py --model 3b
 

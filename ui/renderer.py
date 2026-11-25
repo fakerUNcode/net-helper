@@ -8,23 +8,7 @@ import markdown
 from pygments.formatters import HtmlFormatter
 
 from rag.config import PROJECT_ROOT
-from ui.theme import (
-    BG_COLOR,
-    BLOCKQUOTE_BG,
-    BLOCKQUOTE_BORDER,
-    BORDER_COLOR,
-    CODE_BG,
-    CODE_BLOCK_BG,
-    CODE_TEXT,
-    HIGHLIGHT_BG,
-    LINK_COLOR,
-    SELECTION_BG,
-    SERIF_FONT_FAMILY,
-    TABLE_HEADER_BG,
-    TEXT_COLOR,
-    TEXT_MUTED,
-    TEXT_SECONDARY,
-)
+from ui.theme import get_theme
 
 _CODE_AND_MATH_RE = re.compile(
     r"(```[\s\S]*?```|`[^`\n]+`|\$\$[\s\S]*?\$\$|(?<!\\)\$(?!\$)(?:\\.|[^\n$\\])+(?<!\\)\$(?!\$))"
@@ -64,8 +48,9 @@ def _protect_math_outside_code(md_text: str) -> tuple[str, dict[str, str]]:
     return protected, placeholders
 
 
-def render_answer_html(markdown_text: str) -> str:
+def render_answer_html(markdown_text: str, theme_key: str | None = None) -> str:
     """将完整答案渲染为包含 Markdown、代码高亮与 MathJax 3 的透明背景 HTML。"""
+    theme = get_theme(theme_key)
     protected_md, placeholders = _protect_math_outside_code(markdown_text)
 
     body_html = markdown.markdown(
@@ -89,8 +74,10 @@ def render_answer_html(markdown_text: str) -> str:
     for key, escaped_math in placeholders.items():
         body_html = body_html.replace(key, escaped_math)
 
-    pygments_css = HtmlFormatter(style="gruvbox-light").get_style_defs(".codehilite")
+    pygments_css = HtmlFormatter(style=theme.pygments_style).get_style_defs(".codehilite")
     mathjax_tag = _get_mathjax_script_tag()
+    thumb_bg = "rgba(255, 255, 255, 0.22)" if theme.is_dark else "rgba(122, 90, 51, 0.25)"
+    thumb_hover = "rgba(255, 255, 255, 0.38)" if theme.is_dark else "rgba(122, 90, 51, 0.4)"
 
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -112,19 +99,19 @@ window.MathJax = {{
 {mathjax_tag}
 <style>
   :root {{
-    --bg-color: {BG_COLOR};
-    --text-color: {TEXT_COLOR};
-    --text-secondary: {TEXT_SECONDARY};
-    --text-muted: {TEXT_MUTED};
-    --border-color: {BORDER_COLOR};
-    --link-color: {LINK_COLOR};
-    --code-bg: {CODE_BG};
-    --code-block-bg: {CODE_BLOCK_BG};
-    --blockquote-border: {BLOCKQUOTE_BORDER};
-    --blockquote-bg: {BLOCKQUOTE_BG};
-    --table-header-bg: {TABLE_HEADER_BG};
-    --selection-bg: {SELECTION_BG};
-    --highlight-bg: {HIGHLIGHT_BG};
+    --bg-color: {theme.bg_color};
+    --text-color: {theme.text_color};
+    --text-secondary: {theme.text_secondary};
+    --text-muted: {theme.text_muted};
+    --border-color: {theme.border_color};
+    --link-color: {theme.link_color};
+    --code-bg: {theme.code_bg};
+    --code-block-bg: {theme.code_block_bg};
+    --blockquote-border: {theme.blockquote_border};
+    --blockquote-bg: {theme.blockquote_bg};
+    --table-header-bg: {theme.table_header_bg};
+    --selection-bg: {theme.selection_bg};
+    --highlight-bg: {theme.highlight_bg};
   }}
   html, body {{
     margin: 0;
@@ -132,7 +119,7 @@ window.MathJax = {{
     height: 100%;
     background: transparent;
     color: var(--text-color);
-    font-family: {SERIF_FONT_FAMILY};
+    font-family: {theme.font_family};
     font-size: 13.5px;
     line-height: 1.85;
     overflow-x: hidden;
@@ -197,7 +184,7 @@ window.MathJax = {{
     background: var(--code-bg);
     padding: 1px 5px;
     border-radius: 4px;
-    color: {CODE_TEXT};
+    color: {theme.code_text};
   }}
   pre, .codehilite pre {{
     background: var(--code-block-bg);
@@ -208,7 +195,7 @@ window.MathJax = {{
     margin: 8px 0;
     font-size: 12.5px;
     line-height: 1.5;
-    color: var(--text-color);
+    color: {theme.code_block_text};
   }}
   pre code, .codehilite pre code {{
     background: transparent;
@@ -248,11 +235,11 @@ window.MathJax = {{
     height: 6px;
   }}
   ::-webkit-scrollbar-thumb {{
-    background: rgba(122, 90, 51, 0.25);
+    background: {thumb_bg};
     border-radius: 3px;
   }}
   ::-webkit-scrollbar-thumb:hover {{
-    background: rgba(122, 90, 51, 0.4);
+    background: {thumb_hover};
   }}
   ::-webkit-scrollbar-track {{
     background: transparent;

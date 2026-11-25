@@ -13,6 +13,9 @@ _BANNED_PREFIX_RE = re.compile(
     flags=re.MULTILINE,
 )
 
+_THINK_BLOCK_RE = re.compile(r"<think>[\s\S]*?</think>\s*", flags=re.IGNORECASE)
+_UNCLOSED_THINK_TAG_RE = re.compile(r"^\s*<think>\s*", flags=re.IGNORECASE)
+
 _CODE_SEGMENT_RE = re.compile(r"(```[\s\S]*?```|`[^`\n]+`)")
 
 
@@ -43,11 +46,16 @@ def _normalize_latex_in_prose(text: str) -> str:
 
 
 def postprocess_answer(raw_text: str) -> str:
-    """答案后处理器：去除多余空行、规范化 LaTeX、剔除残留套话前缀。"""
+    """答案后处理器：去除思考过程标签、多余空行、规范化 LaTeX、剔除残留套话前缀。"""
     if not raw_text:
         return ""
 
     text = raw_text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    # 移除推理模型（如 Qwen3）生成的 <think>...</think> 思考过程，仅保留最终答案
+    text = _THINK_BLOCK_RE.sub("", text).strip()
+    text = _UNCLOSED_THINK_TAG_RE.sub("", text).strip()
+    if not text:
+        return ""
 
     # 仅在非代码块区域规范化 LaTeX 与套话
     segments = _CODE_SEGMENT_RE.split(text)

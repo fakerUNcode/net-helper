@@ -3,9 +3,12 @@ from __future__ import annotations
 from typing import Any
 
 from PySide6.QtCore import QObject, Qt, QThread, Signal
-from PySide6.QtGui import QKeySequence
+from PySide6.QtGui import QColor, QIcon, QKeySequence, QPainter, QPixmap
 from PySide6.QtWidgets import (
+    QApplication,
     QButtonGroup,
+    QCheckBox,
+    QComboBox,
     QDialog,
     QFileDialog,
     QHBoxLayout,
@@ -25,23 +28,17 @@ from rag.downloader import (
     ensure_offline_gguf,
     ensure_offline_mathjax,
 )
+from rag.manifest import IndexStatus
 from ui.hotkey_manager import pynput_to_qt_sequence, qt_sequence_to_pynput
 from ui.theme import (
-    BG_COLOR,
-    BG_INPUT,
-    BG_INPUT_FOCUS,
-    BG_MUTED,
-    BORDER_COLOR,
-    BORDER_STRONG,
-    BUTTON_TEXT_ON_ACCENT,
-    DOWNLOAD_BTN_BG,
-    DOWNLOAD_BTN_HOVER,
-    LINK_COLOR,
-    QT_SERIF_FONT_FAMILY,
-    TEXT_COLOR,
-    TEXT_MUTED,
-    TEXT_SECONDARY,
+    DEFAULT_THEME_KEY,
+    THEME_ORDER,
+    THEMES,
+    ThemePalette,
     accent_button_qss,
+    combo_box_qss,
+    get_theme,
+    message_box_qss,
     secondary_button_qss,
 )
 
@@ -70,14 +67,28 @@ class _OfflineDownloadWorker(QObject):
             self.failed.emit(str(exc))
 
 
+def _make_theme_swatch_icon(theme: ThemePalette) -> QIcon:
+    pixmap = QPixmap(14, 14)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setBrush(QColor(theme.bg_color))
+    painter.setPen(QColor(theme.link_color))
+    painter.drawRoundedRect(1, 1, 12, 12, 3, 3)
+    painter.end()
+    return QIcon(pixmap)
+
+
 class HotkeySetupDialog(QDialog):
-    """Minimal startup setup dialog: Select Model (3b/7b) and Set Hotkey."""
+    """Minimal startup setup dialog: Select Model, Set Hotkey, and Select Theme."""
 
     def __init__(
         self,
         initial_pynput_hotkey: str,
         llm_cfg: dict[str, Any] | None = None,
         show_model_selector: bool = True,
+        initial_theme: str = DEFAULT_THEME_KEY,
+        index_status: IndexStatus | None = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -89,8 +100,13 @@ class HotkeySetupDialog(QDialog):
         self._llm_cfg = llm_cfg or {}
         self._profiles: dict[str, dict[str, Any]] = dict(self._llm_cfg.get("profiles") or {})
         self._selected_profile = str(self._llm_cfg.get("model_profile", "3b"))
+        self._selected_theme = get_theme(initial_theme).key
         self._custom_model_paths: dict[str, str] = {}
         self._profile_radios: dict[str, QRadioButton] = {}
+        self._browse_buttons: list[QPushButton] = []
+        self._preset_buttons: list[QPushButton] = []
+        self._model_title_label: QLabel | None = None
+        self.rebuild_checkbox: QCheckBox | None = None
         self._dl_thread: QThread | None = None
         self._dl_worker: _OfflineDownloadWorker | None = None
 
@@ -102,70 +118,26 @@ class HotkeySetupDialog(QDialog):
             model_header = QHBoxLayout()
             model_header.setSpacing(8)
 
-            model_title = QLabel("Select Model")
-            model_title.setStyleSheet(
-                f"font-size: 14px; font-weight: 600; color: {TEXT_COLOR}; font-family: {QT_SERIF_FONT_FAMILY};"
-            )
-            model_header.addWidget(model_title)
+            self._model_title_label = QLabel("Select Model")
+            model_header.addWidget(self._model_title_label)
             model_header.addStretch(1)
 
             self.download_btn = QPushButton("Download")
             self.download_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            self.download_btn.setStyleSheet(
-                f"""
-                QPushButton {{
-                    background: {DOWNLOAD_BTN_BG};
-                    color: {BUTTON_TEXT_ON_ACCENT};
-                    border: none;
-                    border-radius: 6px;
-                    padding: 3px 10px;
-                    font-size: 11px;
-                    font-weight: 600;
-                }}
-                QPushButton:hover {{
-                    background: {DOWNLOAD_BTN_HOVER};
-                }}
-                QPushButton:disabled {{
-                    background: {BORDER_COLOR};
-                    color: {TEXT_MUTED};
-                }}
-                """
-            )
             self.download_btn.clicked.connect(self._start_offline_download)
             model_header.addWidget(self.download_btn)
             layout.addLayout(model_header)
 
             self._btn_group = QButtonGroup(self)
-            for key in ("3b", "7b"):
-                if key not in self._profiles:
-                    continue
-                prof = self._profiles[key]
+            if self._selected_profile not in self._profiles:
+                self._selected_profile = next(iter(self._profiles))
+            for key, prof in self._profiles.items():
                 raw_path = str(prof.get("model_path", ""))
                 self._custom_model_paths[key] = raw_path
 
                 row = QHBoxLayout()
                 row.setSpacing(8)
-                radio = QRadioButton(key)
-                radio.setStyleSheet(
-                    f"""
-                    QRadioButton {{
-                        font-size: 13px;
-                        color: {TEXT_COLOR};
-                        spacing: 8px;
-                    }}
-                    QRadioButton::indicator {{
-                        width: 14px;
-                        height: 14px;
-                        border-radius: 8px;
-                        border: 1.5px solid {BORDER_STRONG};
-                        background: {BG_INPUT_FOCUS};
-                    }}
-                    QRadioButton::indicator:checked {{
-                        background: {LINK_COLOR};
-                        border: 1.5px solid {LINK_COLOR};
-                    }}
-                    """
-                )
+                radio = QRadioButton(str(prof.get("label") or key))
                 if key == self._selected_profile:
                     radio.setChecked(True)
                 radio.toggled.connect(lambda _checked, k=key: self._on_profile_toggled())
@@ -175,60 +147,27 @@ class HotkeySetupDialog(QDialog):
 
                 browse_btn = QPushButton("Browse")
                 browse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-                browse_btn.setStyleSheet(secondary_button_qss(border_radius=6, padding="3px 8px", font_size=11))
                 browse_btn.clicked.connect(lambda _c=False, k=key: self._browse_gguf(k))
+                self._browse_buttons.append(browse_btn)
                 row.addWidget(browse_btn)
                 layout.addLayout(row)
 
             self.download_progress = QProgressBar()
             self.download_progress.setFixedHeight(5)
             self.download_progress.setTextVisible(False)
-            self.download_progress.setStyleSheet(
-                f"""
-                QProgressBar {{
-                    background: {BORDER_COLOR};
-                    border: none;
-                    border-radius: 2px;
-                }}
-                QProgressBar::chunk {{
-                    background: {LINK_COLOR};
-                    border-radius: 2px;
-                }}
-                """
-            )
             self.download_progress.hide()
             layout.addWidget(self.download_progress)
 
             self.download_detail_label = QLabel()
-            self.download_detail_label.setStyleSheet(f"font-size: 11px; color: {LINK_COLOR};")
             self.download_detail_label.hide()
             layout.addWidget(self.download_detail_label)
 
             self._refresh_offline_summary()
 
-        title = QLabel("Set Hotkey")
-        title.setStyleSheet(
-            f"font-size: 14px; font-weight: 600; color: {TEXT_COLOR}; margin-top: 2px; font-family: {QT_SERIF_FONT_FAMILY};"
-        )
-        layout.addWidget(title)
+        self._hotkey_title_label = QLabel("Set Hotkey")
+        layout.addWidget(self._hotkey_title_label)
 
         self.key_edit = QKeySequenceEdit(QKeySequence(pynput_to_qt_sequence(initial_pynput_hotkey)))
-        self.key_edit.setStyleSheet(
-            f"""
-            QKeySequenceEdit {{
-                background: {BG_INPUT};
-                border: 1px solid {BORDER_COLOR};
-                border-radius: 8px;
-                padding: 7px 10px;
-                color: {TEXT_COLOR};
-                font-size: 13px;
-            }}
-            QKeySequenceEdit:focus {{
-                border: 1px solid {LINK_COLOR};
-                background: {BG_INPUT_FOCUS};
-            }}
-            """
-        )
         layout.addWidget(self.key_edit)
 
         preset_row = QHBoxLayout()
@@ -240,51 +179,198 @@ class HotkeySetupDialog(QDialog):
         ]:
             btn = QPushButton(label)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setStyleSheet(secondary_button_qss(border_radius=6, padding="3px 8px", font_size=11))
             btn.clicked.connect(
                 lambda _checked=False, p=pynput_val: self.key_edit.setKeySequence(
                     QKeySequence(pynput_to_qt_sequence(p))
                 )
             )
+            self._preset_buttons.append(btn)
             preset_row.addWidget(btn)
         preset_row.addStretch(1)
         layout.addLayout(preset_row)
 
+        self._theme_title_label = QLabel("Theme")
+        layout.addWidget(self._theme_title_label)
+
+        self.theme_combo = QComboBox()
+        self.theme_combo.setCursor(Qt.CursorShape.PointingHandCursor)
+        for key in THEME_ORDER:
+            palette = THEMES[key]
+            self.theme_combo.addItem(_make_theme_swatch_icon(palette), palette.label, userData=key)
+        idx = self.theme_combo.findData(self._selected_theme)
+        if idx >= 0:
+            self.theme_combo.setCurrentIndex(idx)
+        self.theme_combo.currentIndexChanged.connect(self._on_theme_changed)
+        layout.addWidget(self.theme_combo)
+
+        if show_model_selector:
+            needs_rebuild = bool(index_status and index_status.needs_rebuild)
+            checkbox_label = "Rebuild index (docs updated)" if needs_rebuild else "Rebuild index"
+            self.rebuild_checkbox = QCheckBox(checkbox_label)
+            self.rebuild_checkbox.setChecked(needs_rebuild)
+            if index_status and index_status.needs_rebuild:
+                self.rebuild_checkbox.setToolTip(index_status.reason)
+            layout.addWidget(self.rebuild_checkbox)
+
         btn_row = QHBoxLayout()
         btn_row.addStretch(1)
 
-        cancel_btn = QPushButton("Cancel" if not show_model_selector else "Quit")
-        cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        cancel_btn.setStyleSheet(
+        self._cancel_btn = QPushButton("Cancel" if not show_model_selector else "Quit")
+        self._cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._cancel_btn.clicked.connect(self.reject)
+
+        self.confirm_btn = QPushButton("Save" if not show_model_selector else "Start")
+        self.confirm_btn.setDefault(True)
+        self.confirm_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.confirm_btn.clicked.connect(self._on_confirm)
+
+        btn_row.addWidget(self._cancel_btn)
+        btn_row.addWidget(self.confirm_btn)
+        layout.addLayout(btn_row)
+
+        self._apply_theme_styles(get_theme(self._selected_theme))
+
+    def _on_theme_changed(self) -> None:
+        key = self.theme_combo.currentData()
+        if isinstance(key, str):
+            self._selected_theme = get_theme(key).key
+            self._apply_theme_styles(get_theme(self._selected_theme))
+
+    def _apply_theme_styles(self, t: ThemePalette) -> None:
+        self.setStyleSheet(f"QDialog {{ background-color: {t.bg_color}; color: {t.text_color}; }}")
+        title_qss = (
+            f"font-size: 14px; font-weight: 600; color: {t.text_color}; "
+            f"margin-top: 2px; font-family: {t.qt_font_family};"
+        )
+
+        if self._model_title_label is not None:
+            self._model_title_label.setStyleSheet(
+                f"font-size: 14px; font-weight: 600; color: {t.text_color}; font-family: {t.qt_font_family};"
+            )
+            self.download_btn.setStyleSheet(
+                f"""
+                QPushButton {{
+                    background: {t.download_btn_bg};
+                    color: {t.button_text_on_accent};
+                    border: none;
+                    border-radius: 6px;
+                    padding: 3px 10px;
+                    font-size: 11px;
+                    font-weight: 600;
+                }}
+                QPushButton:hover {{
+                    background: {t.download_btn_hover};
+                }}
+                QPushButton:disabled {{
+                    background: {t.border_color};
+                    color: {t.text_muted};
+                }}
+                """
+            )
+            radio_qss = f"""
+                QRadioButton {{
+                    font-size: 13px;
+                    color: {t.text_color};
+                    spacing: 8px;
+                }}
+                QRadioButton::indicator {{
+                    width: 14px;
+                    height: 14px;
+                    border-radius: 8px;
+                    border: 1.5px solid {t.border_strong};
+                    background: {t.bg_input_focus};
+                }}
+                QRadioButton::indicator:checked {{
+                    background: {t.link_color};
+                    border: 1.5px solid {t.link_color};
+                }}
+            """
+            for radio in self._profile_radios.values():
+                radio.setStyleSheet(radio_qss)
+            for btn in self._browse_buttons:
+                btn.setStyleSheet(secondary_button_qss(theme=t, border_radius=6, padding="3px 8px", font_size=11))
+            self.download_progress.setStyleSheet(
+                f"""
+                QProgressBar {{
+                    background: {t.border_color};
+                    border: none;
+                    border-radius: 2px;
+                }}
+                QProgressBar::chunk {{
+                    background: {t.link_color};
+                    border-radius: 2px;
+                }}
+                """
+            )
+            self.download_detail_label.setStyleSheet(f"font-size: 11px; color: {t.link_color};")
+
+        self._hotkey_title_label.setStyleSheet(title_qss)
+        self.key_edit.setStyleSheet(
+            f"""
+            QKeySequenceEdit {{
+                background: {t.bg_input};
+                border: 1px solid {t.border_color};
+                border-radius: 8px;
+                padding: 7px 10px;
+                color: {t.text_color};
+                font-size: 13px;
+            }}
+            QKeySequenceEdit:focus {{
+                border: 1px solid {t.link_color};
+                background: {t.bg_input_focus};
+            }}
+            """
+        )
+        for btn in self._preset_buttons:
+            btn.setStyleSheet(secondary_button_qss(theme=t, border_radius=6, padding="3px 8px", font_size=11))
+
+        self._theme_title_label.setStyleSheet(title_qss)
+        self.theme_combo.setStyleSheet(combo_box_qss(t))
+        if self.rebuild_checkbox is not None:
+            self.rebuild_checkbox.setStyleSheet(
+                f"""
+                QCheckBox {{
+                    font-size: 12px;
+                    color: {t.text_secondary};
+                    spacing: 6px;
+                }}
+                QCheckBox::indicator {{
+                    width: 14px;
+                    height: 14px;
+                    border-radius: 4px;
+                    border: 1.5px solid {t.border_strong};
+                    background: {t.bg_input_focus};
+                }}
+                QCheckBox::indicator:checked {{
+                    background: {t.link_color};
+                    border: 1.5px solid {t.link_color};
+                }}
+                """
+            )
+        app_inst = QApplication.instance()
+        if app_inst is not None:
+            app_inst.setStyleSheet(message_box_qss(t))
+
+        self._cancel_btn.setStyleSheet(
             f"""
             QPushButton {{
                 background: transparent;
-                color: {TEXT_SECONDARY};
-                border: 1px solid {BORDER_COLOR};
+                color: {t.text_secondary};
+                border: 1px solid {t.border_color};
                 border-radius: 8px;
                 padding: 6px 14px;
                 font-size: 12px;
             }}
             QPushButton:hover {{
-                background: {BG_MUTED};
-                color: {TEXT_COLOR};
-                border-color: {BORDER_STRONG};
+                background: {t.bg_muted};
+                color: {t.text_color};
+                border-color: {t.border_strong};
             }}
             """
         )
-        cancel_btn.clicked.connect(self.reject)
-
-        self.confirm_btn = QPushButton("Save" if not show_model_selector else "Start")
-        self.confirm_btn.setDefault(True)
-        self.confirm_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.confirm_btn.setStyleSheet(accent_button_qss(border_radius=8, padding="6px 18px", font_size=12))
-        self.confirm_btn.clicked.connect(self._on_confirm)
-
-        btn_row.addWidget(cancel_btn)
-        btn_row.addWidget(self.confirm_btn)
-        layout.addLayout(btn_row)
-
-        self.setStyleSheet(f"QDialog {{ background-color: {BG_COLOR}; color: {TEXT_COLOR}; }}")
+        self.confirm_btn.setStyleSheet(
+            accent_button_qss(theme=t, border_radius=8, padding="6px 18px", font_size=12)
+        )
 
     def _active_profile_key(self) -> str:
         for key, radio in self._profile_radios.items():
@@ -314,6 +400,7 @@ class HotkeySetupDialog(QDialog):
         raw_path = self._custom_model_paths.get(key, "")
         self.download_btn.setEnabled(False)
         self.confirm_btn.setEnabled(False)
+        self._cancel_btn.setEnabled(False)
         self.download_progress.setRange(0, 0)
         self.download_progress.show()
         self.download_detail_label.setText("...")
@@ -328,7 +415,16 @@ class HotkeySetupDialog(QDialog):
         self._dl_worker.failed.connect(self._on_download_failed)
         self._dl_worker.finished.connect(self._dl_thread.quit)
         self._dl_worker.failed.connect(self._dl_thread.quit)
+        self._dl_thread.finished.connect(self._cleanup_download)
         self._dl_thread.start()
+
+    def _cleanup_download(self) -> None:
+        if self._dl_worker is not None:
+            self._dl_worker.deleteLater()
+            self._dl_worker = None
+        if self._dl_thread is not None:
+            self._dl_thread.deleteLater()
+            self._dl_thread = None
 
     def _on_download_progress(self, downloaded: int, total: int, label: str) -> None:
         if total > 0:
@@ -346,14 +442,27 @@ class HotkeySetupDialog(QDialog):
         self.download_progress.hide()
         self.download_detail_label.hide()
         self.confirm_btn.setEnabled(True)
+        self._cancel_btn.setEnabled(True)
         self._refresh_offline_summary()
 
     def _on_download_failed(self, err: str) -> None:
         self.download_progress.hide()
         self.download_detail_label.hide()
         self.confirm_btn.setEnabled(True)
+        self._cancel_btn.setEnabled(True)
         self.download_btn.setEnabled(True)
         QMessageBox.warning(self, "Error", err)
+
+    def reject(self) -> None:
+        if self._dl_thread is not None and self._dl_thread.isRunning():
+            return
+        super().reject()
+
+    def closeEvent(self, event) -> None:
+        if self._dl_thread is not None and self._dl_thread.isRunning():
+            event.ignore()
+            return
+        super().closeEvent(event)
 
     def _browse_gguf(self, key: str) -> None:
         models_dir = resolve_project_path("./models")
@@ -376,6 +485,9 @@ class HotkeySetupDialog(QDialog):
             first_seq = seq_str.split(",")[0].strip()
             self._selected_pynput = qt_sequence_to_pynput(first_seq)
         self._selected_profile = self._active_profile_key()
+        key = self.theme_combo.currentData()
+        if isinstance(key, str):
+            self._selected_theme = get_theme(key).key
         self.accept()
 
     def selected_hotkey(self) -> str:
@@ -386,3 +498,9 @@ class HotkeySetupDialog(QDialog):
 
     def selected_model_path(self) -> str:
         return self._custom_model_paths.get(self._selected_profile, "")
+
+    def selected_theme(self) -> str:
+        return self._selected_theme
+
+    def should_rebuild_index(self) -> bool:
+        return bool(self.rebuild_checkbox is not None and self.rebuild_checkbox.isChecked())

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt, QThread, QUrl, Signal
@@ -14,6 +15,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMenu,
+    QMessageBox,
     QPushButton,
     QSizePolicy,
     QSystemTrayIcon,
@@ -24,24 +26,14 @@ from PySide6.QtWidgets import (
 from rag.config import PROJECT_ROOT
 from rag.postprocess import postprocess_answer
 from rag.prompt import build_messages
+from rag.retriever import VectorRetriever
 from ui.hotkey_manager import format_hotkey_label
 from ui.renderer import render_answer_html
 from ui.theme import (
-    BG_CARD_RGBA,
-    BG_INPUT,
-    BG_INPUT_FOCUS,
-    BG_MUTED,
-    BORDER_CARD,
-    BORDER_COLOR,
-    LINK_COLOR,
-    QT_SERIF_FONT_FAMILY,
-    SELECTION_QT_BG,
-    TEXT_COLOR,
-    TEXT_MUTED,
-    TEXT_SECONDARY,
-    WARNING_TEXT,
     accent_button_qss,
+    get_theme,
     ghost_icon_button_qss,
+    set_active_theme,
     tray_menu_qss,
 )
 
@@ -72,6 +64,26 @@ class _QueryWorker(QObject):
             self.failed.emit(str(exc))
 
 
+class _IngestWorker(QObject):
+    """后台重建向量数据库，避免阻塞桌面界面线程。"""
+
+    finished = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, config_path: Path | None = None) -> None:
+        super().__init__()
+        self._config_path = config_path
+
+    def run(self) -> None:
+        try:
+            from ingest import ingest
+
+            res = ingest(config_path=self._config_path, rebuild=True)
+            self.finished.emit(res)
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
 class FloatingAssistantWindow(QWidget):
     """左下角半透明悬浮助手：提问态仅显示输入框，生成结束后弹出完整答案窗口并支持 Restart。"""
 
@@ -83,6 +95,7 @@ class FloatingAssistantWindow(QWidget):
         retriever: Any,
         llm_client: Any,
         hotkey_warning: str = "",
+        config_path: Path | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -90,10 +103,12 @@ class FloatingAssistantWindow(QWidget):
         self.retriever = retriever
         self.llm_client = llm_client
         self._hotkey_warning = hotkey_warning
+        self._config_path = config_path
 
         app_cfg = config.get("app", {})
         self._app_name = str(app_cfg.get("name", "NetHelper"))
         self._hotkey_label = format_hotkey_label(str(app_cfg.get("hotkey", "<ctrl>+<shift>+h")))
+        self._theme_key = set_active_theme(str(app_cfg.get("theme", "sepia"))).key
         self._opacity = max(0.2, min(1.0, float(app_cfg.get("window_opacity", 0.70))))
         self._input_width = int(app_cfg.get("input_width", 360))
         self._input_height = int(app_cfg.get("input_height", 60))
@@ -110,8 +125,15 @@ class FloatingAssistantWindow(QWidget):
         self._resize_start_geo: QRect | None = None
         self._worker_thread: QThread | None = None
         self._worker: _QueryWorker | None = None
+        self._ingest_thread: QThread | None = None
+        self._ingest_worker: _IngestWorker | None = None
         self._is_generating = False
+        self._is_rebuilding = False
         self._in_answer_mode = False
+        self._last_answer_md = ""
+        self._warn_label: QLabel | None = None
+        self._tray_menu: QMenu | None = None
+        self._rebuild_action: QAction | None = None
 
         self._setup_window_flags()
         self._build_ui()
@@ -144,15 +166,6 @@ class FloatingAssistantWindow(QWidget):
         self.card.setObjectName("FloatingCard")
         self.card.setMouseTracking(True)
         self.card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.card.setStyleSheet(
-            f"""
-            #FloatingCard {{
-                background-color: {BG_CARD_RGBA};
-                border: 1px solid {BORDER_CARD};
-                border-radius: 12px;
-            }}
-            """
-        )
         root_layout.addWidget(self.card, 1)
 
         card_layout = QVBoxLayout(self.card)
@@ -172,7 +185,6 @@ class FloatingAssistantWindow(QWidget):
         header_row.setSpacing(8)
 
         self.title_label = QLabel(self._hotkey_label)
-        self.title_label.setStyleSheet(f"font-size: 11px; color: {TEXT_SECONDARY};")
         header_row.addWidget(self.title_label)
         header_row.addStretch(1)
 
@@ -180,7 +192,6 @@ class FloatingAssistantWindow(QWidget):
         self.restart_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.restart_btn.setToolTip("Restart")
         self.restart_btn.setFixedSize(26, 26)
-        self.restart_btn.setStyleSheet(accent_button_qss(border_radius=6, font_size=14))
         self.restart_btn.clicked.connect(self._on_restart_clicked)
         header_row.addWidget(self.restart_btn)
 
@@ -188,7 +199,6 @@ class FloatingAssistantWindow(QWidget):
         self.hide_btn_answer.setCursor(Qt.CursorShape.PointingHandCursor)
         self.hide_btn_answer.setToolTip("Hide")
         self.hide_btn_answer.setFixedSize(24, 24)
-        self.hide_btn_answer.setStyleSheet(ghost_icon_button_qss(border_radius=6, font_size=12))
         self.hide_btn_answer.clicked.connect(self.hide)
         header_row.addWidget(self.hide_btn_answer)
 
@@ -219,29 +229,6 @@ class FloatingAssistantWindow(QWidget):
 
         self.input_edit = QLineEdit(self.input_container)
         self.input_edit.setPlaceholderText("")
-        self.input_edit.setStyleSheet(
-            f"""
-            QLineEdit {{
-                background: {BG_INPUT};
-                border: 1px solid {BORDER_COLOR};
-                border-radius: 8px;
-                padding: 8px 12px;
-                color: {TEXT_COLOR};
-                selection-background-color: {SELECTION_QT_BG};
-                selection-color: {TEXT_COLOR};
-                font-family: {QT_SERIF_FONT_FAMILY};
-                font-size: 13px;
-            }}
-            QLineEdit:focus {{
-                border: 1px solid {LINK_COLOR};
-                background: {BG_INPUT_FOCUS};
-            }}
-            QLineEdit:disabled {{
-                background: {BG_MUTED};
-                color: {TEXT_MUTED};
-            }}
-            """
-        )
         self.input_edit.returnPressed.connect(self._on_submit)
         input_row.addWidget(self.input_edit, 1)
 
@@ -249,7 +236,6 @@ class FloatingAssistantWindow(QWidget):
         self.send_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.send_btn.setToolTip("Send")
         self.send_btn.setFixedSize(32, 32)
-        self.send_btn.setStyleSheet(accent_button_qss(border_radius=8, font_size=13))
         self.send_btn.clicked.connect(self._on_submit)
         input_row.addWidget(self.send_btn)
 
@@ -257,19 +243,67 @@ class FloatingAssistantWindow(QWidget):
         self.hide_btn_input.setCursor(Qt.CursorShape.PointingHandCursor)
         self.hide_btn_input.setToolTip("Hide")
         self.hide_btn_input.setFixedSize(28, 32)
-        self.hide_btn_input.setStyleSheet(ghost_icon_button_qss(border_radius=8, font_size=12))
         self.hide_btn_input.clicked.connect(self.hide)
         input_row.addWidget(self.hide_btn_input)
 
         input_vlayout.addLayout(input_row)
 
         if self._hotkey_warning:
-            warn_label = QLabel(self._hotkey_warning)
-            warn_label.setWordWrap(True)
-            warn_label.setStyleSheet(f"font-size: 11px; color: {WARNING_TEXT};")
-            input_vlayout.addWidget(warn_label)
+            self._warn_label = QLabel(self._hotkey_warning)
+            self._warn_label.setWordWrap(True)
+            input_vlayout.addWidget(self._warn_label)
 
         card_layout.addWidget(self.input_container)
+        self.apply_theme(self._theme_key)
+
+    def apply_theme(self, theme_key: str | None = None) -> None:
+        t = set_active_theme(theme_key or self._theme_key)
+        self._theme_key = t.key
+        self.card.setStyleSheet(
+            f"""
+            #FloatingCard {{
+                background-color: {t.bg_card_rgba};
+                border: 1px solid {t.border_card};
+                border-radius: 12px;
+            }}
+            """
+        )
+        self.title_label.setStyleSheet(f"font-size: 11px; color: {t.text_secondary};")
+        self.restart_btn.setStyleSheet(accent_button_qss(theme=t, border_radius=6, font_size=14))
+        self.hide_btn_answer.setStyleSheet(ghost_icon_button_qss(theme=t, border_radius=6, font_size=12))
+        self.input_edit.setStyleSheet(
+            f"""
+            QLineEdit {{
+                background: {t.bg_input};
+                border: 1px solid {t.border_color};
+                border-radius: 8px;
+                padding: 8px 12px;
+                color: {t.text_color};
+                selection-background-color: {t.selection_qt_bg};
+                selection-color: {t.text_color};
+                font-family: {t.qt_font_family};
+                font-size: 13px;
+            }}
+            QLineEdit:focus {{
+                border: 1px solid {t.link_color};
+                background: {t.bg_input_focus};
+            }}
+            QLineEdit:disabled {{
+                background: {t.bg_muted};
+                color: {t.text_muted};
+            }}
+            """
+        )
+        self.send_btn.setStyleSheet(accent_button_qss(theme=t, border_radius=8, font_size=13))
+        self.hide_btn_input.setStyleSheet(ghost_icon_button_qss(theme=t, border_radius=8, font_size=12))
+        if self._warn_label is not None:
+            self._warn_label.setStyleSheet(f"font-size: 11px; color: {t.warning_text};")
+        if self._tray_menu is not None:
+            self._tray_menu.setStyleSheet(tray_menu_qss(t))
+        if self._in_answer_mode and self._last_answer_md:
+            rendered_html = render_answer_html(self._last_answer_md, theme_key=self._theme_key)
+            base_url = QUrl.fromLocalFile(str(PROJECT_ROOT) + "/")
+            self.web_view.setHtml(rendered_html, base_url)
 
     def _setup_tray(self) -> None:
         if not QSystemTrayIcon.isSystemTrayAvailable():
@@ -281,7 +315,8 @@ class FloatingAssistantWindow(QWidget):
         self.tray_icon.setToolTip(self._hotkey_label)
 
         menu = QMenu()
-        menu.setStyleSheet(tray_menu_qss())
+        self._tray_menu = menu
+        menu.setStyleSheet(tray_menu_qss(get_theme(self._theme_key)))
         toggle_action = QAction("Show / Hide", self)
         toggle_action.triggered.connect(self.toggle_visibility)
         menu.addAction(toggle_action)
@@ -290,9 +325,13 @@ class FloatingAssistantWindow(QWidget):
         restart_action.triggered.connect(self._on_restart_clicked)
         menu.addAction(restart_action)
 
-        hotkey_action = QAction("Hotkey...", self)
+        hotkey_action = QAction("Hotkey && Theme...", self)
         hotkey_action.triggered.connect(self.rebind_hotkey_requested.emit)
         menu.addAction(hotkey_action)
+
+        self._rebuild_action = QAction("Rebuild Index", self)
+        self._rebuild_action.triggered.connect(self._on_rebuild_index_clicked)
+        menu.addAction(self._rebuild_action)
 
         menu.addSeparator()
         quit_action = QAction("Quit", self)
@@ -341,7 +380,7 @@ class FloatingAssistantWindow(QWidget):
         self.activateWindow()
 
     def _on_submit(self) -> None:
-        if self._is_generating:
+        if self._is_generating or self._is_rebuilding:
             return
         question = self.input_edit.text().strip()
         if not question:
@@ -377,18 +416,20 @@ class FloatingAssistantWindow(QWidget):
 
     def _on_generation_finished(self, final_answer: str) -> None:
         self._is_generating = False
-        rendered_html = render_answer_html(final_answer)
+        self._last_answer_md = final_answer
+        rendered_html = render_answer_html(final_answer, theme_key=self._theme_key)
         self._enter_answer_mode(rendered_html)
 
     def _on_generation_failed(self, error_msg: str) -> None:
         self._is_generating = False
         safe_err = html.escape(error_msg)
         err_md = f"**Error**\n\n```\n{safe_err}\n```"
-        rendered_html = render_answer_html(err_md)
+        self._last_answer_md = err_md
+        rendered_html = render_answer_html(err_md, theme_key=self._theme_key)
         self._enter_answer_mode(rendered_html)
 
     def _on_restart_clicked(self) -> None:
-        if self._is_generating:
+        if self._is_generating or self._is_rebuilding:
             return
         self.input_edit.clear()
         self._enter_input_mode()
@@ -397,6 +438,69 @@ class FloatingAssistantWindow(QWidget):
         self.raise_()
         self.activateWindow()
         self.input_edit.setFocus()
+
+    def _on_rebuild_index_clicked(self) -> None:
+        if self._is_generating or self._is_rebuilding:
+            return
+        self._is_rebuilding = True
+        self.input_edit.setEnabled(False)
+        self.send_btn.setEnabled(False)
+        self.restart_btn.setEnabled(False)
+        if self._rebuild_action is not None:
+            self._rebuild_action.setEnabled(False)
+        if getattr(self, "tray_icon", None) is not None:
+            self.tray_icon.setToolTip("Rebuilding index...")
+
+        self._ingest_thread = QThread(self)
+        self._ingest_worker = _IngestWorker(self._config_path)
+        self._ingest_worker.moveToThread(self._ingest_thread)
+        self._ingest_thread.started.connect(self._ingest_worker.run)
+        self._ingest_worker.finished.connect(self._on_rebuild_finished)
+        self._ingest_worker.failed.connect(self._on_rebuild_failed)
+        self._ingest_worker.finished.connect(self._ingest_thread.quit)
+        self._ingest_worker.failed.connect(self._ingest_thread.quit)
+        self._ingest_thread.finished.connect(self._cleanup_ingest_worker)
+        self._ingest_thread.start()
+
+    def _cleanup_ingest_worker(self) -> None:
+        if self._ingest_worker is not None:
+            self._ingest_worker.deleteLater()
+            self._ingest_worker = None
+        if self._ingest_thread is not None:
+            self._ingest_thread.deleteLater()
+            self._ingest_thread = None
+
+    def _restore_after_rebuild(self) -> None:
+        self._is_rebuilding = False
+        if not self._in_answer_mode:
+            self.input_edit.setEnabled(True)
+            self.send_btn.setEnabled(True)
+        self.restart_btn.setEnabled(True)
+        if self._rebuild_action is not None:
+            self._rebuild_action.setEnabled(True)
+        if getattr(self, "tray_icon", None) is not None:
+            self.tray_icon.setToolTip(self._hotkey_label)
+
+    def _on_rebuild_finished(self, result: Any) -> None:
+        try:
+            self.retriever = VectorRetriever(self.config)
+        finally:
+            self._restore_after_rebuild()
+        files_count = getattr(result, "indexed_files", 0)
+        chunks_count = getattr(result, "total_chunks", 0)
+        QMessageBox.information(
+            self if self.isVisible() else None,
+            "Index Rebuilt",
+            f"Indexed {files_count} files ({chunks_count} chunks).",
+        )
+
+    def _on_rebuild_failed(self, err: str) -> None:
+        self._restore_after_rebuild()
+        QMessageBox.warning(
+            self if self.isVisible() else None,
+            "Rebuild Failed",
+            err,
+        )
 
     def restore_window(self) -> None:
         if not self.isVisible():

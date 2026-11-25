@@ -80,10 +80,13 @@ class LocalLLMClient:
 
         return "".join(token_buffer)
 
-    def _resolve_llama_cpp_params(self) -> tuple[str, int, int]:
+    def _active_profile(self) -> dict[str, Any]:
         profiles = self.cfg.get("profiles") or {}
         profile_key = str(self.cfg.get("model_profile", "3b"))
-        profile = profiles.get(profile_key) or {}
+        return profiles.get(profile_key) or {}
+
+    def _resolve_llama_cpp_params(self) -> tuple[str, int, int]:
+        profile = self._active_profile()
 
         raw_path = profile.get("model_path") or self.cfg.get(
             "llama_cpp_model_path", "./models/qwen2.5-3b-instruct-q4_k_m.gguf"
@@ -91,6 +94,20 @@ class LocalLLMClient:
         n_ctx = int(profile.get("n_ctx", self.cfg.get("llama_cpp_n_ctx", 4096)))
         n_gpu_layers = int(profile.get("n_gpu_layers", self.cfg.get("llama_cpp_n_gpu_layers", -1)))
         return str(raw_path), n_ctx, n_gpu_layers
+
+    def _resolve_generation_kwargs(self) -> dict[str, Any]:
+        profile = self._active_profile()
+        kwargs: dict[str, Any] = {
+            "temperature": float(profile.get("temperature", self.cfg.get("temperature", 0.1))),
+            "max_tokens": int(profile.get("max_tokens", self.cfg.get("max_tokens", 1024))),
+        }
+        if "top_p" in profile:
+            kwargs["top_p"] = float(profile["top_p"])
+        if "top_k" in profile:
+            kwargs["top_k"] = int(profile["top_k"])
+        if "presence_penalty" in profile:
+            kwargs["presence_penalty"] = float(profile["presence_penalty"])
+        return kwargs
 
     def _prepare_windows_cuda_dlls(self) -> None:
         if sys.platform != "win32":
@@ -138,7 +155,7 @@ class LocalLLMClient:
             if not model_path.exists():
                 raise FileNotFoundError(
                     f"未找到 GGUF 模型文件: {model_path}\n"
-                    f"请将自训练或下载的 Qwen2.5-3B / 7B-Instruct GGUF 模型放入 ./models/ 目录，"
+                    f"请将自训练或下载的 Qwen2.5-3B / 7B / Qwen3-8B / 14B GGUF 模型放入 ./models/ 目录，"
                     f"或在 config.yaml 中修改对应路径。"
                 )
             self._llama_instance = Llama(
@@ -151,11 +168,11 @@ class LocalLLMClient:
 
     def _generate_llama_cpp_buffered(self, messages: list[dict[str, str]]) -> str:
         llm = self._get_llama_cpp()
+        gen_kwargs = self._resolve_generation_kwargs()
         stream = llm.create_chat_completion(
             messages=messages,
-            temperature=float(self.cfg.get("temperature", 0.1)),
-            max_tokens=int(self.cfg.get("max_tokens", 1024)),
             stream=True,
+            **gen_kwargs,
         )
 
         token_buffer: list[str] = []
